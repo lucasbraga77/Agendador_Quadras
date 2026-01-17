@@ -2,8 +2,10 @@ from flask import Flask, render_template, request, jsonify
 import threading
 import time
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo  # Python 3.9+
 import requests
 import hashlib
+import os
 
 app = Flask(__name__)
 
@@ -12,26 +14,32 @@ LOGIN_ANTECIPADO = "13:59:50"
 INICIO_TENTATIVAS = "13:59:59"
 FIM_EXECUCAO = "14:00:10"
 
-DATA = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+BRASILIA = ZoneInfo("America/Sao_Paulo")  # Timezone explícito
 
+# ===== UTIL =====
 logs = []
 cancelado = False
 lock = threading.Lock()
 
-# ===== UTIL =====
+def agora_brasilia():
+    return datetime.now(BRASILIA)
+
 def log(msg):
     with lock:
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+        logs.append(f"[{agora_brasilia().strftime('%H:%M:%S')}] {msg}")
 
 def gerar_md5(s):
     return hashlib.md5(s.encode("utf-8")).hexdigest()
 
-def esperar(hora):
-    while datetime.now().strftime("%H:%M:%S") < hora:
+def esperar(hora_str):
+    while agora_brasilia().strftime("%H:%M:%S") < hora_str:
         if cancelado:
             return False
         time.sleep(0.3)
     return True
+
+# ===== DATA CORRETA =====
+DATA = (agora_brasilia() + timedelta(days=1)).strftime("%Y-%m-%d")
 
 # ===== API =====
 def login(username, senha):
@@ -102,7 +110,7 @@ def processo(dados):
 
         fim = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
 
-        while datetime.now().time() < fim:
+        while agora_brasilia().time() < fim:
             if cancelado:
                 log("Cancelado pelo usuário")
                 return
@@ -152,9 +160,7 @@ def get_logs():
     with lock:
         return jsonify(logs[-200:])
 
-import os
-
+# ===== RUN =====
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
-
