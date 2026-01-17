@@ -1,66 +1,213 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agendador de Quadras</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="container">
-    <h1>Agendador de Quadras</h1>
-
-    <input id="user" placeholder="Usuário">
-    <input id="senha" type="password" placeholder="Senha">
-    <input id="matricula" placeholder="Matrícula">
-
-    <h3>Quadras</h3>
-    <div id="quadras">
-        <label><input type="checkbox" value="PADEL-1"> PADEL-1</label>
-        <label><input type="checkbox" value="PADEL-2"> PADEL-2</label>
-        <label><input type="checkbox" value="PADEL-3"> PADEL-3</label>
-        <label><input type="checkbox" value="PADEL-4"> PADEL-4</label>
-        <label><input type="checkbox" value="PADEL-5"> PADEL-5</label>
+    <h1>⚡ Agendador de Quadras</h1>
+    
+    <!-- SELETOR DE MODO -->
+    <div class="modo-selector">
+        <button class="modo-btn active" data-modo="agendado" onclick="selectModo('agendado')">
+            <span class="emoji">⏰</span>
+            <span class="titulo">Agendar às 14h</span>
+            <span class="desc">Execução programada</span>
+        </button>
+        <button class="modo-btn" data-modo="instantaneo" onclick="selectModo('instantaneo')">
+            <span class="emoji">🔍</span>
+            <span class="titulo">Buscar Agora</span>
+            <span class="desc">Busca instantânea</span>
+        </button>
     </div>
 
-    <h3>Horários</h3>
-    <div id="horarios">
-        <label><input type="checkbox" value="09:30"> 09:30</label>
-        <label><input type="checkbox" value="10:45"> 10:45</label>
-        <label><input type="checkbox" value="12:00"> 12:00</label>
-        <label><input type="checkbox" value="13:15"> 13:15</label>
-        <label><input type="checkbox" value="14:30"> 14:30</label>
-        <label><input type="checkbox" value="15:45"> 15:45</label>
-        <label><input type="checkbox" value="17:00"> 17:00</label>
-        <label><input type="checkbox" value="18:15"> 18:15</label>
-        <label><input type="checkbox" value="19:30"> 19:30</label>
-        <label><input type="checkbox" value="20:45"> 20:45</label>
+    <!-- FORMULÁRIO -->
+    <div class="form-section">
+        <div class="input-group">
+            <input id="user" type="text" placeholder="Usuário" required>
+        </div>
+        
+        <div class="input-group">
+            <input id="senha" type="password" placeholder="Senha" required>
+        </div>
+        
+        <div class="input-group">
+            <input id="matricula" type="text" placeholder="Matrícula" required>
+        </div>
+
+        <div class="input-group" id="data-container" style="display: none;">
+            <input id="data" type="date" placeholder="Data">
+            <small>Deixe em branco para amanhã</small>
+        </div>
     </div>
 
-    <button onclick="start()">Iniciar</button>
-    <button onclick="cancel()">Cancelar</button>
+    <!-- QUADRAS -->
+    <div class="section">
+        <h3>🎾 Quadras</h3>
+        <div id="quadras" class="checkbox-grid">
+            <label class="checkbox-label">
+                <input type="checkbox" value="PADEL-1">
+                <span>PADEL-1</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="PADEL-2">
+                <span>PADEL-2</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="PADEL-3">
+                <span>PADEL-3</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="PADEL-4">
+                <span>PADEL-4</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="PADEL-5">
+                <span>PADEL-5</span>
+            </label>
+        </div>
+    </div>
 
-    <pre id="log"></pre>
+    <!-- HORÁRIOS -->
+    <div class="section">
+        <h3>🕐 Horários</h3>
+        <div id="horarios" class="checkbox-grid horarios-grid">
+            <label class="checkbox-label">
+                <input type="checkbox" value="09:30">
+                <span>09:30</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="10:45">
+                <span>10:45</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="12:00">
+                <span>12:00</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="13:15">
+                <span>13:15</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="14:30">
+                <span>14:30</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="15:45">
+                <span>15:45</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="17:00">
+                <span>17:00</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="18:15">
+                <span>18:15</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="19:30">
+                <span>19:30</span>
+            </label>
+            <label class="checkbox-label">
+                <input type="checkbox" value="20:45">
+                <span>20:45</span>
+            </label>
+        </div>
+    </div>
 
-    <small>Developed by Lucas Braga | Versão Web 1.0</small>
+    <!-- BOTÕES -->
+    <div class="actions">
+        <button class="btn-primary" onclick="start()">
+            <span id="btn-text">▶ Iniciar</span>
+        </button>
+        <button class="btn-cancel" onclick="cancel()">
+            ⏹ Cancelar
+        </button>
+    </div>
+
+    <!-- LOG -->
+    <div class="log-section">
+        <h3>📋 Log de Execução</h3>
+        <pre id="log"></pre>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        <small> | Versão Web 2.0</small>
+    </div>
 </div>
 
 <script>
+let modoAtual = 'agendado';
+
+function selectModo(modo) {
+    modoAtual = modo;
+    
+    // Atualiza botões
+    document.querySelectorAll('.modo-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-modo="${modo}"]`).classList.add('active');
+    
+    // Mostra/esconde campo de data
+    const dataContainer = document.getElementById('data-container');
+    const btnText = document.getElementById('btn-text');
+    
+    if (modo === 'instantaneo') {
+        dataContainer.style.display = 'block';
+        btnText.textContent = '🔍 Buscar Agora';
+    } else {
+        dataContainer.style.display = 'none';
+        btnText.textContent = '⏰ Agendar às 14h';
+    }
+}
+
 function getChecked(name) {
     return Array.from(document.querySelectorAll(`#${name} input:checked`))
         .map(e => e.value);
 }
 
 function start() {
+    const quadras = getChecked("quadras");
+    const horarios = getChecked("horarios");
+    
+    if (!user.value || !senha.value || !matricula.value) {
+        alert("Preencha todos os campos!");
+        return;
+    }
+    
+    if (quadras.length === 0 || horarios.length === 0) {
+        alert("Selecione ao menos uma quadra e um horário!");
+        return;
+    }
+    
+    const payload = {
+        user: user.value,
+        senha: senha.value,
+        matricula: matricula.value,
+        quadras: quadras,
+        horarios: horarios,
+        modo: modoAtual
+    };
+    
+    // Adiciona data se modo instantâneo
+    if (modoAtual === 'instantaneo' && data.value) {
+        payload.data = data.value;
+    }
+    
     fetch("/start", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            user: user.value,
-            senha: senha.value,
-            matricula: matricula.value,
-            quadras: getChecked("quadras"),
-            horarios: getChecked("horarios")
-        })
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === "erro") {
+            alert(data.msg);
+        }
     });
 }
 
@@ -68,11 +215,21 @@ function cancel() {
     fetch("/cancel", {method: "POST"});
 }
 
+// Atualiza logs a cada segundo
 setInterval(() => {
     fetch("/logs")
         .then(r => r.json())
-        .then(data => log.textContent = data.join("\n"));
+        .then(data => {
+            const logEl = document.getElementById('log');
+            logEl.textContent = data.join("\n");
+            logEl.scrollTop = logEl.scrollHeight;
+        });
 }, 1000);
+
+// Define data de amanhã como padrão
+const amanha = new Date();
+amanha.setDate(amanha.getDate() + 1);
+document.getElementById('data').value = amanha.toISOString().split('T')[0];
 </script>
 </body>
 </html>
