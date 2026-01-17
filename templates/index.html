@@ -12,15 +12,15 @@
     
     <!-- SELETOR DE MODO -->
     <div class="modo-selector">
-        <button class="modo-btn active" data-modo="agendado" onclick="selectModo('agendado')">
+        <button class="modo-btn active" data-modo="reserva" onclick="selectModo('reserva')">
+            <span class="emoji">⚡</span>
+            <span class="titulo">Reservar Agora</span>
+            <span class="desc">Tenta agendar imediatamente</span>
+        </button>
+        <button class="modo-btn" data-modo="agendado" onclick="selectModo('agendado')">
             <span class="emoji">⏰</span>
             <span class="titulo">Agendar às 14h</span>
             <span class="desc">Execução programada</span>
-        </button>
-        <button class="modo-btn" data-modo="instantaneo" onclick="selectModo('instantaneo')">
-            <span class="emoji">🔍</span>
-            <span class="titulo">Buscar Agora</span>
-            <span class="desc">Busca instantânea</span>
         </button>
     </div>
 
@@ -137,7 +137,7 @@
 </div>
 
 <script>
-let modoAtual = 'agendado';
+let modoAtual = 'reserva';
 
 function selectModo(modo) {
     modoAtual = modo;
@@ -152,9 +152,9 @@ function selectModo(modo) {
     const dataContainer = document.getElementById('data-container');
     const btnText = document.getElementById('btn-text');
     
-    if (modo === 'instantaneo') {
+    if (modo === 'reserva') {
         dataContainer.style.display = 'block';
-        btnText.textContent = '🔍 Buscar Agora';
+        btnText.textContent = '⚡ Reservar Agora';
     } else {
         dataContainer.style.display = 'none';
         btnText.textContent = '⏰ Agendar às 14h';
@@ -188,8 +188,8 @@ function start() {
         modo: modoAtual
     };
     
-    // Adiciona data se modo instantâneo
-    if (modoAtual === 'instantaneo' && data.value) {
+    // Adiciona data se não for modo agendado
+    if (modoAtual !== 'agendado' && data.value) {
         payload.data = data.value;
     }
     

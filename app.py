@@ -11,8 +11,8 @@ app.secret_key = "uma_chave_super_secreta_qualquer"
 
 # ===== FEATURE FLAGS =====
 FEATURES = {
-    "modo_agendado": True,
-    "modo_instantaneo": True,
+    "modo_agendado": True,      # Espera até 14h
+    "modo_reserva": True,        # Reserva imediatamente
 }
 
 # ===== CONFIG =====
@@ -133,56 +133,79 @@ def reservar(token, horario, quadra, data):
     
     return False
 
-# ===== MODO INSTANTÂNEO (Busca) =====
-def buscar_instantaneo(session_id, dados):
+# ===== MODO RESERVA (Reserva imediatamente) =====
+def reservar_agora(session_id, dados):
     user_cancel[session_id] = False
-    log(session_id, "🔍 Modo Instantâneo - Iniciando busca")
+    log(session_id, "⚡ Modo Reserva - Tentando agendar AGORA")
     
     try:
         log(session_id, "Realizando login...")
         token = login(dados["user"], dados["senha"])
         log(session_id, "✅ Login realizado")
         
-        # Se não passou data, usa amanhã
         data = dados.get("data", "")
         if not data:
             data = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        log(session_id, f"📅 Buscando horários para {data}")
+        log(session_id, f"📅 Data: {data}")
         log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
         log(session_id, f"🕐 Horários: {', '.join(dados['horarios'])}")
+        log(session_id, "")
+        log(session_id, "🚀 Iniciando tentativas...")
         
-        grade = buscar_horarios(token, data)
+        # Tenta por 10 segundos
+        fim = datetime.now() + timedelta(seconds=10)
         
-        encontrados = []
-        for quadra in grade:
-            codigo = quadra["dependencia"]["codigo"].strip()
-            nome = quadra["dependencia"]["descricao"]
+        while datetime.now() < fim:
+            if user_cancel.get(session_id, False):
+                log(session_id, "Cancelado")
+                return
             
-            # Verifica se é uma das quadras desejadas
-            if codigo not in dados["quadras"]:
+            try:
+                grade = buscar_horarios(token, data)
+            except PermissionError:
+                log(session_id, "⚠️ Token expirado, refazendo login...")
+                token = login(dados["user"], dados["senha"])
                 continue
             
-            for item in quadra.get("horarios", []):
-                hora_inicio = item.get("horaInicial")
-                status = item.get("status", "").lower() if item.get("status") else ""
+            # Itera pelos horários (na ordem de prioridade)
+            for horario in dados["horarios"]:
+                if user_cancel.get(session_id, False):
+                    return
                 
-                # Verifica se é um dos horários desejados
-                if hora_inicio in dados["horarios"]:
-                    if status == "livre":
-                        encontrados.append(f"✅ {nome} ({codigo}) às {hora_inicio} - LIVRE")
-                    else:
-                        encontrados.append(f"❌ {nome} ({codigo}) às {hora_inicio} - {status.upper()}")
-        
-        if encontrados:
-            log(session_id, "📋 Resultados:")
-            for e in encontrados:
-                log(session_id, e)
-        else:
-            log(session_id, "❌ Nenhuma quadra encontrada nas condições especificadas")
+                for quadra in grade:
+                    codigo = quadra["dependencia"]["codigo"].strip()
+                    nome = quadra["dependencia"]["descricao"]
+                    
+                    if codigo not in dados["quadras"]:
+                        continue
+                    
+                    for item in quadra.get("horarios", []):
+                        hora_inicio = item.get("horaInicial")
+                        status = item.get("status", "").lower() if item.get("status") else ""
+                        
+                        if hora_inicio == horario and status == "livre":
+                            log(session_id, f"⚡ Tentando {nome} ({codigo}) às {horario}")
+                            try:
+                                if reservar(token, horario, codigo, data):
+                                    log(session_id, f"")
+                                    log(session_id, f"✅✅✅ RESERVA CONFIRMADA!")
+                                    log(session_id, f"📍 Quadra: {nome} ({codigo})")
+                                    log(session_id, f"🕐 Horário: {horario}")
+                                    log(session_id, f"📅 Data: {data}")
+                                    return
+                                else:
+                                    log(session_id, f"❌ Falhou: {nome} ({codigo}) às {horario}")
+                            except PermissionError:
+                                log(session_id, "⚠️ Token expirado, refazendo login...")
+                                token = login(dados["user"], dados["senha"])
+                                break
             
-    except PermissionError as e:
-        log(session_id, f"⚠️ Token expirado: {e}")
+            time.sleep(0.5)
+        
+        log(session_id, "")
+        log(session_id, "❌ Tempo esgotado - Nenhuma reserva realizada")
+        
     except Exception as e:
         log(session_id, f"❌ Erro: {e}")
 
@@ -287,12 +310,6 @@ def start():
         session["session_id"] = str(uuid.uuid4())
     session_id = session["session_id"]
     
-    # Verifica feature
-    if modo == "instantaneo" and not FEATURES["modo_instantaneo"]:
-        return jsonify({"status": "erro", "msg": "Modo instantâneo desabilitado"})
-    if modo == "agendado" and not FEATURES["modo_agendado"]:
-        return jsonify({"status": "erro", "msg": "Modo agendado desabilitado"})
-    
     # Valida campos obrigatórios
     if not dados.get("user") or not dados.get("senha"):
         return jsonify({"status": "erro", "msg": "Preencha usuário e senha"})
@@ -300,8 +317,16 @@ def start():
     if not dados.get("quadras") or not dados.get("horarios"):
         return jsonify({"status": "erro", "msg": "Selecione quadras e horários"})
     
-    # Seleciona função
-    func = buscar_instantaneo if modo == "instantaneo" else processo_agendado
+    # Mapeia modos
+    funcoes = {
+        "reserva": reservar_agora,
+        "agendado": processo_agendado,
+    }
+    
+    if modo not in funcoes:
+        return jsonify({"status": "erro", "msg": "Modo inválido"})
+    
+    func = funcoes[modo]
     
     thread = threading.Thread(target=func, args=(session_id, dados), daemon=True)
     user_threads[session_id] = thread
