@@ -11,11 +11,11 @@ app.secret_key = "uma_chave_super_secreta_qualquer"
 
 # ===== FEATURE FLAGS =====
 FEATURES = {
-    "modo_agendado": True,      # Executa às 14h (programado)
-    "modo_instantaneo": True,   # Busca imediata ao clicar
+    "modo_agendado": True,
+    "modo_instantaneo": True,
 }
 
-# ===== CONFIG FIXA =====
+# ===== CONFIG =====
 LOGIN_ANTECIPADO = "13:59:50"
 INICIO_TENTATIVAS = "13:59:59"
 FIM_EXECUCAO = "14:00:10"
@@ -31,7 +31,8 @@ def log(session_id, msg):
     with lock:
         if session_id not in user_logs:
             user_logs[session_id] = []
-        user_logs[session_id].append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        user_logs[session_id].append(f"[{timestamp}] {msg}")
         if len(user_logs[session_id]) > 200:
             user_logs[session_id] = user_logs[session_id][-200:]
 
@@ -56,25 +57,58 @@ def login(username, senha):
         "senha": senha_md5,
         "senhaSociety": senha_md5
     }
-    headers = {"Content-Type": "application/json", "tenant": "uniaocorinthians"}
+    headers = {
+        "Content-Type": "application/json",
+        "Origin": "https://uniaocorinthians.areadosocio.com.br",
+        "Referer": "https://uniaocorinthians.areadosocio.com.br/",
+        "tenant": "uniaocorinthians",
+        "Accept": "application/json"
+    }
     r = requests.post(url, json=payload, headers=headers)
     r.raise_for_status()
-    return r.json()["retorno"]["token"]["valor"]
+    data = r.json()
+    if data.get("ehSucesso") and data.get("retorno", {}).get("token", {}).get("valor"):
+        return data["retorno"]["token"]["valor"]
+    else:
+        raise Exception("Falha no login")
 
 def buscar_horarios(token, data):
-    url = f"https://api-associados.areadosocio.com.br/api/GruposDeDependencia/01/Horarios?data={data}T00:00:00"
-    headers = {"Authorization": f"Bearer {token}", "tenant": "uniaocorinthians"}
+    """
+    data deve estar no formato YYYY-MM-DD (ex: 2026-01-05)
+    """
+    grupo_id = "01"
+    data_completa = f"{data}T00:00:00"
+    url = f"https://api-associados.areadosocio.com.br/api/GruposDeDependencia/{grupo_id}/Horarios?data={data_completa}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Origin": "https://uniaocorinthians.areadosocio.com.br",
+        "Referer": "https://uniaocorinthians.areadosocio.com.br/",
+        "tenant": "uniaocorinthians"
+    }
     r = requests.get(url, headers=headers)
+    
+    if r.status_code == 401:
+        raise PermissionError("Token expirado ou inválido")
+    
     r.raise_for_status()
     return r.json().get("gradeHorarios", [])
 
 def reservar(token, horario, quadra, matricula, data):
+    """
+    data: YYYY-MM-DD
+    horario: HH:MM (ex: 14:30)
+    """
     url = "https://api-associados.areadosocio.com.br/api/Reservas"
+    
+    # Calcula hora fim (75 minutos depois)
+    hora_fim = (datetime.strptime(horario, "%H:%M") + timedelta(minutes=75)).strftime("%H:%M")
+    
     payload = {
         "codigoDependencia": quadra,
         "dia": f"{data}T00:00:00",
         "horaInicio": horario,
-        "horaFim": (datetime.strptime(horario, "%H:%M") + timedelta(minutes=75)).strftime("%H:%M"),
+        "horaFim": hora_fim,
         "matricula": matricula,
         "idModalidadeReserva": 1,
         "convidados": [],
@@ -83,13 +117,24 @@ def reservar(token, horario, quadra, matricula, data):
     }
     headers = {
         "Authorization": f"Bearer {token}",
-        "tenant": "uniaocorinthians",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Origin": "https://uniaocorinthians.areadosocio.com.br",
+        "Referer": "https://uniaocorinthians.areadosocio.com.br/",
+        "tenant": "uniaocorinthians"
     }
+    
     r = requests.post(url, json=payload, headers=headers)
-    return r.json().get("ehSucesso", False)
+    
+    if r.status_code == 401:
+        raise PermissionError("Token expirado")
+    
+    if r.status_code == 200:
+        json_resp = r.json()
+        return json_resp.get("ehSucesso", False)
+    
+    return False
 
-# ===== MODO INSTANTÂNEO =====
+# ===== MODO INSTANTÂNEO (Busca) =====
 def buscar_instantaneo(session_id, dados):
     user_cancel[session_id] = False
     log(session_id, "🔍 Modo Instantâneo - Iniciando busca")
@@ -99,37 +144,50 @@ def buscar_instantaneo(session_id, dados):
         token = login(dados["user"], dados["senha"])
         log(session_id, "✅ Login realizado")
         
-        data = dados.get("data", (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"))
+        # Se não passou data, usa amanhã
+        data = dados.get("data", "")
+        if not data:
+            data = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
         log(session_id, f"📅 Buscando horários para {data}")
+        log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
+        log(session_id, f"🕐 Horários: {', '.join(dados['horarios'])}")
         
         grade = buscar_horarios(token, data)
         
         encontrados = []
-        for h in dados["horarios"]:
-            for q in grade:
-                codigo = q["dependencia"]["codigo"]
-                if codigo not in dados["quadras"]:
-                    continue
+        for quadra in grade:
+            codigo = quadra["dependencia"]["codigo"].strip()
+            nome = quadra["dependencia"]["descricao"]
+            
+            # Verifica se é uma das quadras desejadas
+            if codigo not in dados["quadras"]:
+                continue
+            
+            for item in quadra.get("horarios", []):
+                hora_inicio = item.get("horaInicial")
+                status = item.get("status", "").lower() if item.get("status") else ""
                 
-                for item in q["horarios"]:
-                    if item["horaInicial"] == h:
-                        status = item["status"].lower()
-                        if status == "livre":
-                            encontrados.append(f"✅ {codigo} às {h} - LIVRE")
-                        else:
-                            encontrados.append(f"❌ {codigo} às {h} - OCUPADO")
+                # Verifica se é um dos horários desejados
+                if hora_inicio in dados["horarios"]:
+                    if status == "livre":
+                        encontrados.append(f"✅ {nome} ({codigo}) às {hora_inicio} - LIVRE")
+                    else:
+                        encontrados.append(f"❌ {nome} ({codigo}) às {hora_inicio} - {status.upper()}")
         
         if encontrados:
-            log(session_id, "📋 Quadras encontradas:")
+            log(session_id, "📋 Resultados:")
             for e in encontrados:
                 log(session_id, e)
         else:
-            log(session_id, "❌ Nenhuma quadra disponível nos horários selecionados")
+            log(session_id, "❌ Nenhuma quadra encontrada nas condições especificadas")
             
+    except PermissionError as e:
+        log(session_id, f"⚠️ Token expirado: {e}")
     except Exception as e:
         log(session_id, f"❌ Erro: {e}")
 
-# ===== MODO AGENDADO (14h) =====
+# ===== MODO AGENDADO (14h - COM ESPERA) =====
 def processo_agendado(session_id, dados):
     user_cancel[session_id] = False
     log(session_id, "⏰ Modo Agendado - Bot iniciado")
@@ -148,8 +206,15 @@ def processo_agendado(session_id, dados):
             log(session_id, "Cancelado antes das tentativas")
             return
         
-        data = dados.get("data", (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"))
-        log(session_id, "🚀 Iniciando tentativas de reserva")
+        # Se não passou data, usa amanhã
+        data = dados.get("data", "")
+        if not data:
+            data = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        log(session_id, f"🚀 Iniciando tentativas para {data}")
+        log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
+        log(session_id, f"🕐 Horários: {', '.join(dados['horarios'])}")
+        
         fim = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
         
         while datetime.now().time() < fim:
@@ -157,28 +222,50 @@ def processo_agendado(session_id, dados):
                 log(session_id, "Cancelado pelo usuário")
                 return
             
-            grade = buscar_horarios(token, data)
+            try:
+                grade = buscar_horarios(token, data)
+            except PermissionError:
+                log(session_id, "⚠️ Token expirado, refazendo login...")
+                token = login(dados["user"], dados["senha"])
+                continue
             
-            for h in dados["horarios"]:
-                for q in grade:
-                    codigo = q["dependencia"]["codigo"]
+            # Itera pelos horários desejados (na ordem de prioridade)
+            for horario in dados["horarios"]:
+                if user_cancel.get(session_id, False):
+                    return
+                
+                # Itera pelas quadras
+                for quadra in grade:
+                    codigo = quadra["dependencia"]["codigo"].strip()
+                    nome = quadra["dependencia"]["descricao"]
+                    
+                    # Filtra apenas quadras desejadas
                     if codigo not in dados["quadras"]:
                         continue
                     
-                    for item in q["horarios"]:
-                        if item["horaInicial"] == h:
-                            if item["status"].lower() == "livre":
-                                log(session_id, f"⚡ Tentando {codigo} às {h}")
-                                if reservar(token, h, codigo, dados["matricula"], data):
-                                    log(session_id, f"✅ RESERVA CONFIRMADA: {codigo} às {h}")
-                                    return
-                                else:
-                                    log(session_id, f"❌ Tentativa falhou: {codigo} às {h}")
+                    # Procura o horário específico nesta quadra
+                    for item in quadra.get("horarios", []):
+                        hora_inicio = item.get("horaInicial")
+                        status = item.get("status", "").lower() if item.get("status") else ""
+                        
+                        if hora_inicio == horario:
+                            if status == "livre":
+                                log(session_id, f"⚡ Tentando {nome} ({codigo}) às {horario}")
+                                try:
+                                    if reservar(token, horario, codigo, dados["matricula"], data):
+                                        log(session_id, f"✅✅✅ RESERVA CONFIRMADA: {nome} ({codigo}) às {horario}")
+                                        return
+                                    else:
+                                        log(session_id, f"❌ Falhou: {nome} ({codigo}) às {horario}")
+                                except PermissionError:
+                                    log(session_id, "⚠️ Token expirado, refazendo login...")
+                                    token = login(dados["user"], dados["senha"])
                             else:
-                                log(session_id, f"❌ Já reservado: {codigo} às {h}")
-            time.sleep(0.7)
+                                log(session_id, f"⏭️ {nome} ({codigo}) às {horario} - {status.upper()}")
+            
+            time.sleep(0.5)
         
-        log(session_id, "❌ Tempo esgotado - Nenhuma quadra disponível")
+        log(session_id, "❌ Tempo esgotado - Nenhuma reserva realizada")
         
     except Exception as e:
         log(session_id, f"❌ Erro: {e}")
@@ -201,18 +288,26 @@ def start():
         session["session_id"] = str(uuid.uuid4())
     session_id = session["session_id"]
     
-    # Verifica se feature está habilitada
+    # Verifica feature
     if modo == "instantaneo" and not FEATURES["modo_instantaneo"]:
         return jsonify({"status": "erro", "msg": "Modo instantâneo desabilitado"})
     if modo == "agendado" and not FEATURES["modo_agendado"]:
         return jsonify({"status": "erro", "msg": "Modo agendado desabilitado"})
     
-    # Seleciona função baseada no modo
+    # Valida campos obrigatórios
+    if not dados.get("user") or not dados.get("senha") or not dados.get("matricula"):
+        return jsonify({"status": "erro", "msg": "Campos obrigatórios faltando"})
+    
+    if not dados.get("quadras") or not dados.get("horarios"):
+        return jsonify({"status": "erro", "msg": "Selecione quadras e horários"})
+    
+    # Seleciona função
     func = buscar_instantaneo if modo == "instantaneo" else processo_agendado
     
     thread = threading.Thread(target=func, args=(session_id, dados), daemon=True)
     user_threads[session_id] = thread
     thread.start()
+    
     return jsonify({"status": "ok", "modo": modo})
 
 @app.route("/cancel", methods=["POST"])
@@ -231,6 +326,10 @@ def get_logs():
     session_id = session["session_id"]
     with lock:
         return jsonify(user_logs.get(session_id, []))
+
+@app.route("/health")
+def health():
+    return jsonify({"status": "ok", "time": datetime.now().isoformat()})
 
 import os
 
