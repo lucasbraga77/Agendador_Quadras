@@ -8,9 +8,9 @@ import hashlib
 app = Flask(__name__)
 
 # ===== CONFIG FIXA =====
-LOGIN_ANTECIPADO = "11:48:50"
-INICIO_TENTATIVAS = "11:48:59"
-FIM_EXECUCAO = "11:49:10"
+LOGIN_ANTECIPADO = "13:59:50"
+INICIO_TENTATIVAS = "13:59:59"
+FIM_EXECUCAO = "14:00:10"
 
 DATA = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
