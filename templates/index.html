@@ -33,10 +33,6 @@
         <div class="input-group">
             <input id="senha" type="password" placeholder="Senha" required>
         </div>
-        
-        <div class="input-group">
-            <input id="matricula" type="text" placeholder="Matrícula" required>
-        </div>
 
         <div class="input-group" id="data-container" style="display: none;">
             <input id="data" type="date" placeholder="Data">
@@ -136,7 +132,7 @@
 
     <!-- FOOTER -->
     <div class="footer">
-        <small> | Versão Web 2.0</small>
+        <small>Developed by Lucas Braga | Versão Web 2.0</small>
     </div>
 </div>
 
@@ -174,8 +170,8 @@ function start() {
     const quadras = getChecked("quadras");
     const horarios = getChecked("horarios");
     
-    if (!user.value || !senha.value || !matricula.value) {
-        alert("Preencha todos os campos!");
+    if (!user.value || !senha.value) {
+        alert("Preencha usuário e senha!");
         return;
     }
     
@@ -187,7 +183,6 @@ function start() {
     const payload = {
         user: user.value,
         senha: senha.value,
-        matricula: matricula.value,
         quadras: quadras,
         horarios: horarios,
         modo: modoAtual

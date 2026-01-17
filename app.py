@@ -94,7 +94,7 @@ def buscar_horarios(token, data):
     r.raise_for_status()
     return r.json().get("gradeHorarios", [])
 
-def reservar(token, horario, quadra, matricula, data):
+def reservar(token, horario, quadra, data):
     """
     data: YYYY-MM-DD
     horario: HH:MM (ex: 14:30)
@@ -109,7 +109,6 @@ def reservar(token, horario, quadra, matricula, data):
         "dia": f"{data}T00:00:00",
         "horaInicio": horario,
         "horaFim": hora_fim,
-        "matricula": matricula,
         "idModalidadeReserva": 1,
         "convidados": [],
         "haveraNaoSociosPresentes": False,
@@ -252,7 +251,7 @@ def processo_agendado(session_id, dados):
                             if status == "livre":
                                 log(session_id, f"⚡ Tentando {nome} ({codigo}) às {horario}")
                                 try:
-                                    if reservar(token, horario, codigo, dados["matricula"], data):
+                                    if reservar(token, horario, codigo, data):
                                         log(session_id, f"✅✅✅ RESERVA CONFIRMADA: {nome} ({codigo}) às {horario}")
                                         return
                                     else:
@@ -295,8 +294,8 @@ def start():
         return jsonify({"status": "erro", "msg": "Modo agendado desabilitado"})
     
     # Valida campos obrigatórios
-    if not dados.get("user") or not dados.get("senha") or not dados.get("matricula"):
-        return jsonify({"status": "erro", "msg": "Campos obrigatórios faltando"})
+    if not dados.get("user") or not dados.get("senha"):
+        return jsonify({"status": "erro", "msg": "Preencha usuário e senha"})
     
     if not dados.get("quadras") or not dados.get("horarios"):
         return jsonify({"status": "erro", "msg": "Selecione quadras e horários"})
