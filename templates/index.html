@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Agendador de Quadras</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Agendador de Quadras</h1>
+
+    <input id="user" placeholder="Usuário">
+    <input id="senha" type="password" placeholder="Senha">
+    <input id="matricula" placeholder="Matrícula">
+
+    <h3>Quadras</h3>
+    <div id="quadras">
+        <label><input type="checkbox" value="PADEL-1"> PADEL-1</label>
+        <label><input type="checkbox" value="PADEL-2"> PADEL-2</label>
+        <label><input type="checkbox" value="PADEL-3"> PADEL-3</label>
+        <label><input type="checkbox" value="PADEL-4"> PADEL-4</label>
+        <label><input type="checkbox" value="PADEL-5"> PADEL-5</label>
+    </div>
+
+    <h3>Horários</h3>
+    <div id="horarios">
+        <label><input type="checkbox" value="09:30"> 09:30</label>
+        <label><input type="checkbox" value="10:45"> 10:45</label>
+        <label><input type="checkbox" value="12:00"> 12:00</label>
+        <label><input type="checkbox" value="13:15"> 13:15</label>
+        <label><input type="checkbox" value="14:30"> 14:30</label>
+        <label><input type="checkbox" value="15:45"> 15:45</label>
+        <label><input type="checkbox" value="17:00"> 17:00</label>
+        <label><input type="checkbox" value="18:15"> 18:15</label>
+        <label><input type="checkbox" value="19:30"> 19:30</label>
+        <label><input type="checkbox" value="20:45"> 20:45</label>
+    </div>
+
+    <button onclick="start()">Iniciar</button>
+    <button onclick="cancel()">Cancelar</button>
+
+    <pre id="log"></pre>
+
+    <small>Developed by Lucas Braga | Versão Web 1.0</small>
+</div>
+
+<script>
+function getChecked(name) {
+    return Array.from(document.querySelectorAll(`#${name} input:checked`))
+        .map(e => e.value);
+}
+
+function start() {
+    fetch("/start", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            user: user.value,
+            senha: senha.value,
+            matricula: matricula.value,
+            quadras: getChecked("quadras"),
+            horarios: getChecked("horarios")
+        })
+    });
+}
+
+function cancel() {
+    fetch("/cancel", {method: "POST"});
+}
+
+setInterval(() => {
+    fetch("/logs")
+        .then(r => r.json())
+        .then(data => log.textContent = data.join("\n"));
+}, 1000);
+</script>
+</body>
+</html>
