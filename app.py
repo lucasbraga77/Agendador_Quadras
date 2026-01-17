@@ -67,10 +67,13 @@ def login(username, senha):
     r = requests.post(url, json=payload, headers=headers)
     r.raise_for_status()
     data = r.json()
+    
+    # Valida resposta como no seu código
     if data.get("ehSucesso") and data.get("retorno", {}).get("token", {}).get("valor"):
         return data["retorno"]["token"]["valor"]
     else:
-        raise Exception("Falha no login")
+        # Retorna erro detalhado
+        raise Exception(f"Falha no login: {str(data)}")
 
 def buscar_horarios(token, data):
     """
@@ -94,10 +97,11 @@ def buscar_horarios(token, data):
     r.raise_for_status()
     return r.json().get("gradeHorarios", [])
 
-def reservar(token, horario, quadra, data):
+def reservar(token, horario, quadra, matricula, data):
     """
     data: YYYY-MM-DD
     horario: HH:MM (ex: 14:30)
+    matricula: matrícula do usuário
     """
     url = "https://api-associados.areadosocio.com.br/api/Reservas"
     
@@ -109,11 +113,11 @@ def reservar(token, horario, quadra, data):
         "dia": f"{data}T00:00:00",
         "horaInicio": horario,
         "horaFim": hora_fim,
-        "matricula": "",  # Envia vazio
+        "matricula": matricula,
         "idModalidadeReserva": 1,
         "convidados": [],
         "haveraNaoSociosPresentes": False,
-        "captcha": "ok"
+        "captcha": "qualquerValor"  # Igual ao seu código
     }
     headers = {
         "Authorization": f"Bearer {token}",
@@ -130,7 +134,10 @@ def reservar(token, horario, quadra, data):
     
     if r.status_code == 200:
         json_resp = r.json()
-        return json_resp.get("ehSucesso", False)
+        if json_resp.get("ehSucesso"):
+            return True
+        # Se falhou, não é erro de código, só não conseguiu reservar
+        return False
     
     return False
 
@@ -141,8 +148,11 @@ def reservar_agora(session_id, dados):
     
     try:
         log(session_id, "Realizando login...")
+        log(session_id, f"Usuário: {dados['user']}")
+        
         token = login(dados["user"], dados["senha"])
-        log(session_id, "✅ Login realizado")
+        log(session_id, "✅ Login realizado com sucesso")
+        log(session_id, f"Token obtido: {token[:20]}...")
         
         data = dados.get("data", "")
         if not data:
@@ -151,22 +161,31 @@ def reservar_agora(session_id, dados):
         log(session_id, f"📅 Data: {data}")
         log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
         log(session_id, f"🕐 Horários: {', '.join(dados['horarios'])}")
+        log(session_id, f"📋 Matrícula: {dados['matricula']}")
         log(session_id, "")
         log(session_id, "🚀 Iniciando tentativas...")
         
         # Tenta por 10 segundos
         fim = datetime.now() + timedelta(seconds=10)
+        tentativa = 0
         
         while datetime.now() < fim:
+            tentativa += 1
+            
             if user_cancel.get(session_id, False):
                 log(session_id, "Cancelado")
                 return
             
             try:
                 grade = buscar_horarios(token, data)
+                log(session_id, f"Tentativa {tentativa}: {len(grade)} dependências encontradas")
             except PermissionError:
                 log(session_id, "⚠️ Token expirado, refazendo login...")
                 token = login(dados["user"], dados["senha"])
+                continue
+            except Exception as e:
+                log(session_id, f"⚠️ Erro ao buscar horários: {e}")
+                time.sleep(1)
                 continue
             
             # Itera pelos horários (na ordem de prioridade)
@@ -186,9 +205,10 @@ def reservar_agora(session_id, dados):
                         status = item.get("status", "").lower() if item.get("status") else ""
                         
                         if hora_inicio == horario and status == "livre":
-                            log(session_id, f"⚡ Tentando {nome} ({codigo}) às {horario}")
+                            log(session_id, f"Encontrado horário livre: {nome} ({codigo}) - {horario}")
+                            log(session_id, f"⚡ Tentando reservar...")
                             try:
-                                if reservar(token, horario, codigo, data):
+                                if reservar(token, horario, codigo, dados["matricula"], data):
                                     log(session_id, f"")
                                     log(session_id, f"✅✅✅ RESERVA CONFIRMADA!")
                                     log(session_id, f"📍 Quadra: {nome} ({codigo})")
@@ -196,19 +216,24 @@ def reservar_agora(session_id, dados):
                                     log(session_id, f"📅 Data: {data}")
                                     return
                                 else:
-                                    log(session_id, f"❌ Falhou: {nome} ({codigo}) às {horario}")
+                                    log(session_id, f"❌ Falhou ao reservar: {nome} ({codigo}) às {horario}")
                             except PermissionError:
-                                log(session_id, "⚠️ Token expirado, refazendo login...")
+                                log(session_id, "⚠️ Token expirado durante reserva, refazendo login...")
                                 token = login(dados["user"], dados["senha"])
                                 break
+                            except Exception as e:
+                                log(session_id, f"❌ Erro ao reservar: {e}")
             
             time.sleep(0.5)
         
         log(session_id, "")
-        log(session_id, "❌ Tempo esgotado - Nenhuma reserva realizada")
+        log(session_id, f"❌ Tempo esgotado após {tentativa} tentativas")
+        log(session_id, "Nenhuma reserva realizada")
         
     except Exception as e:
-        log(session_id, f"❌ Erro: {e}")
+        log(session_id, f"❌ ERRO FATAL: {str(e)}")
+        import traceback
+        log(session_id, f"Detalhes: {traceback.format_exc()}")
 
 # ===== MODO AGENDADO (14h - COM ESPERA) =====
 def processo_agendado(session_id, dados):
@@ -312,8 +337,8 @@ def start():
     session_id = session["session_id"]
     
     # Valida campos obrigatórios
-    if not dados.get("user") or not dados.get("senha"):
-        return jsonify({"status": "erro", "msg": "Preencha usuário e senha"})
+    if not dados.get("user") or not dados.get("senha") or not dados.get("matricula"):
+        return jsonify({"status": "erro", "msg": "Preencha usuário, senha e matrícula"})
     
     if not dados.get("quadras") or not dados.get("horarios"):
         return jsonify({"status": "erro", "msg": "Selecione quadras e horários"})

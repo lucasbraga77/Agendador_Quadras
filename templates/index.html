@@ -34,6 +34,10 @@
             <input id="senha" type="password" placeholder="Senha" required>
         </div>
 
+        <div class="input-group">
+            <input id="matricula" type="text" placeholder="Matrícula" required>
+        </div>
+
         <div class="input-group" id="data-container" style="display: none;">
             <input id="data" type="date" placeholder="Data">
             <small>Deixe em branco para amanhã</small>
@@ -170,8 +174,8 @@ function start() {
     const quadras = getChecked("quadras");
     const horarios = getChecked("horarios");
     
-    if (!user.value || !senha.value) {
-        alert("Preencha usuário e senha!");
+    if (!user.value || !senha.value || !matricula.value) {
+        alert("Preencha usuário, senha e matrícula!");
         return;
     }
     
@@ -183,6 +187,7 @@ function start() {
     const payload = {
         user: user.value,
         senha: senha.value,
+        matricula: matricula.value,
         quadras: quadras,
         horarios: horarios,
         modo: modoAtual
