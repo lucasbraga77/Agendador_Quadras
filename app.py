@@ -109,6 +109,7 @@ def reservar(token, horario, quadra, data):
         "dia": f"{data}T00:00:00",
         "horaInicio": horario,
         "horaFim": hora_fim,
+        "matricula": "",  # Envia vazio
         "idModalidadeReserva": 1,
         "convidados": [],
         "haveraNaoSociosPresentes": False,
