@@ -1,92 +1,81 @@
-/* Reset básico */
-* {
-    box-sizing: border-box;
+/* ===== BODY ===== */
+body {
+    font-family: Arial, sans-serif;
+    background: #e6f2ff;
     margin: 0;
     padding: 0;
 }
 
-body {
-    font-family: Arial, sans-serif;
-    background: #f2f2f2;
-    padding: 10px;
-}
-
+/* ===== CONTAINER ===== */
 .container {
-    max-width: 500px; /* largura ideal para celular */
-    margin: auto;
-    background: white;
+    max-width: 480px;       /* largura máxima para celular */
+    margin: 20px auto;
+    background: #ffffff;
     padding: 20px;
-    border-radius: 10px;
+    border-radius: 12px;
     box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
 
+/* ===== TITULO ===== */
 h1 {
     text-align: center;
+    color: #004080;
     margin-bottom: 20px;
 }
 
+/* ===== INPUTS ===== */
 input {
-    width: 100%; /* ocupa toda a largura da tela */
+    width: 100%;
     padding: 12px;
     margin: 8px 0;
-    border-radius: 6px;
+    border-radius: 8px;
     border: 1px solid #ccc;
+    box-sizing: border-box;
     font-size: 16px;
 }
 
+/* ===== CHECKBOXES ===== */
 #quadras, #horarios {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); /* ajusta automaticamente */
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
     gap: 8px;
-    margin: 10px 0;
+    margin-bottom: 15px;
 }
 
 label {
     display: flex;
     align-items: center;
-    justify-content: center;
-    background: #e0e0e0;
-    padding: 10px;
+    gap: 5px;
+    background: #f0f8ff;
+    padding: 6px 8px;
     border-radius: 6px;
     cursor: pointer;
-    transition: background 0.2s;
     font-size: 14px;
 }
 
-label input {
-    margin-right: 5px;
+input[type="checkbox"] {
+    transform: scale(1.2);
 }
 
-label:hover {
-    background: #d0d0d0;
-}
-
+/* ===== BOTOES ===== */
 button {
-    width: 48%; /* dois botões lado a lado */
-    padding: 14px 0;
-    margin: 5px 1%;
+    width: calc(50% - 10px);
+    padding: 12px 0;
+    margin: 5px;
+    font-size: 16px;
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    font-size: 16px;
-    font-weight: bold;
     color: white;
-    background: #28a745;
-    transition: background 0.2s;
+    background-color: #0073e6;
+    transition: background 0.3s;
 }
 
 button:hover {
-    background: #218838;
+    background-color: #005bb5;
 }
 
-button:nth-child(2) {
-    background: #dc3545; /* botão cancelar vermelho */
-}
-
-button:nth-child(2):hover {
-    background: #c82333;
-}
-
+/* ===== LOG ===== */
 #log {
     margin-top: 15px;
     background: #111;
@@ -95,29 +84,27 @@ button:nth-child(2):hover {
     height: 150px;
     overflow-y: auto;
     font-size: 12px;
-    border-radius: 6px;
+    border-radius: 8px;
+    font-family: monospace;
 }
 
+/* ===== RODAPE ===== */
 small {
     display: block;
     text-align: center;
     margin-top: 15px;
     color: #555;
+    font-size: 12px;
 }
 
-/* Responsivo extra */
-@media (max-width: 400px) {
-    #quadras, #horarios {
-        grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+/* ===== RESPONSIVO ===== */
+@media screen and (max-width: 500px) {
+    .container {
+        margin: 10px;
+        padding: 15px;
     }
-
     button {
-        font-size: 14px;
-        padding: 12px 0;
-    }
-
-    input {
-        font-size: 14px;
-        padding: 10px;
+        width: 100%;
+        margin: 6px 0;
     }
 }
