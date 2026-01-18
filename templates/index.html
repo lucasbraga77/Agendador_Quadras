@@ -12,15 +12,15 @@
     
     <!-- SELETOR DE MODO -->
     <div class="modo-selector">
-        <button class="modo-btn active" data-modo="reserva" onclick="selectModo('reserva')">
-            <span class="emoji">⚡</span>
-            <span class="titulo">Reservar Agora</span>
-            <span class="desc">Tenta agendar imediatamente</span>
-        </button>
-        <button class="modo-btn" data-modo="agendado" onclick="selectModo('agendado')">
+        <button class="modo-btn active" data-modo="agendado" onclick="selectModo('agendado')">
             <span class="emoji">⏰</span>
             <span class="titulo">Agendar às 14h</span>
             <span class="desc">Execução programada</span>
+        </button>
+        <button class="modo-btn" data-modo="reserva" onclick="selectModo('reserva')">
+            <span class="emoji">⚡</span>
+            <span class="titulo">Reservar Agora</span>
+            <span class="desc">Tenta agendar imediatamente</span>
         </button>
     </div>
 
@@ -40,7 +40,7 @@
 
         <div class="input-group" id="data-container" style="display: none;">
             <input id="data" type="date" placeholder="Data">
-            <small>Deixe em branco para amanhã</small>
+            <small id="data-hint">Para amanhã</small>
         </div>
     </div>
 
@@ -141,7 +141,7 @@
 </div>
 
 <script>
-let modoAtual = 'reserva';
+let modoAtual = 'agendado';
 
 function selectModo(modo) {
     modoAtual = modo;
@@ -154,13 +154,16 @@ function selectModo(modo) {
     
     // Mostra/esconde campo de data
     const dataContainer = document.getElementById('data-container');
+    const dataHint = document.getElementById('data-hint');
     const btnText = document.getElementById('btn-text');
     
     if (modo === 'reserva') {
         dataContainer.style.display = 'block';
+        dataHint.textContent = 'Deixe em branco para amanhã';
         btnText.textContent = '⚡ Reservar Agora';
     } else {
         dataContainer.style.display = 'none';
+        dataHint.textContent = 'Para amanhã';
         btnText.textContent = '⏰ Agendar às 14h';
     }
 }

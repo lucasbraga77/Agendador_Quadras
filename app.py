@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import requests
 import hashlib
 import uuid
+import os
 
 app = Flask(__name__)
 app.secret_key = "uma_chave_super_secreta_qualquer"
@@ -20,11 +21,51 @@ LOGIN_ANTECIPADO = "13:59:50"
 INICIO_TENTATIVAS = "13:59:59"
 FIM_EXECUCAO = "14:00:10"
 
+# Keep-alive config
+KEEP_ALIVE_URL = os.environ.get("RENDER_EXTERNAL_URL", "")  # URL do seu app no Render
+KEEP_ALIVE_ATIVO = False
+
 # ===== SESSÕES =====
 user_threads = {}
 user_logs = {}
 user_cancel = {}
 lock = threading.Lock()
+
+# ===== KEEP-ALIVE AUTOMÁTICO =====
+def keep_alive_worker():
+    """Thread que mantém o app ativo fazendo ping em si mesmo"""
+    global KEEP_ALIVE_ATIVO
+    
+    while KEEP_ALIVE_ATIVO:
+        try:
+            # Só mantém ativo entre 7h e 22h (horário de Brasília)
+            hora_atual = datetime.now().hour
+            
+            if 7 <= hora_atual <= 22:
+                if KEEP_ALIVE_URL:
+                    # Faz ping em si mesmo
+                    requests.get(f"{KEEP_ALIVE_URL}/health", timeout=5)
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Keep-alive ping enviado")
+            
+            # Aguarda 10 minutos
+            time.sleep(600)  # 600 segundos = 10 minutos
+            
+        except Exception as e:
+            print(f"Erro no keep-alive: {e}")
+            time.sleep(60)  # Se der erro, espera 1 minuto e tenta de novo
+
+def iniciar_keep_alive():
+    """Inicia o sistema de keep-alive"""
+    global KEEP_ALIVE_ATIVO
+    
+    if not KEEP_ALIVE_URL:
+        print("⚠️ RENDER_EXTERNAL_URL não configurada. Keep-alive desabilitado.")
+        return
+    
+    KEEP_ALIVE_ATIVO = True
+    thread = threading.Thread(target=keep_alive_worker, daemon=True)
+    thread.start()
+    print(f"✅ Keep-alive iniciado! Mantendo ativo das 7h às 22h")
 
 # ===== UTIL =====
 def log(session_id, msg):
@@ -300,7 +341,7 @@ def processo_agendado(session_id, dados):
                             if status == "livre":
                                 log(session_id, f"⚡ Tentando {nome} ({codigo}) às {horario}")
                                 try:
-                                    if reservar(token, horario, codigo, data):
+                                    if reservar(token, horario, codigo, dados["matricula"], data):
                                         log(session_id, f"✅✅✅ RESERVA CONFIRMADA: {nome} ({codigo}) às {horario}")
                                         return
                                     else:
@@ -381,8 +422,36 @@ def get_logs():
 def health():
     return jsonify({"status": "ok", "time": datetime.now().isoformat()})
 
+@app.route("/keep-alive")
+def keep_alive():
+    """Endpoint para manter o servidor acordado no Render"""
+    return jsonify({
+        "status": "alive",
+        "active_threads": len(user_threads),
+        "keep_alive_ativo": KEEP_ALIVE_ATIVO,
+        "time": datetime.now().isoformat()
+    })
+
+@app.route("/ativar-keep-alive", methods=["POST"])
+def ativar_keep_alive():
+    """Ativa o sistema de keep-alive (útil para agendar às 14h)"""
+    global KEEP_ALIVE_ATIVO
+    
+    if not KEEP_ALIVE_ATIVO and KEEP_ALIVE_URL:
+        iniciar_keep_alive()
+        return jsonify({"status": "ok", "msg": "Keep-alive ativado!"})
+    elif not KEEP_ALIVE_URL:
+        return jsonify({"status": "erro", "msg": "URL não configurada"})
+    else:
+        return jsonify({"status": "ok", "msg": "Já está ativo"})
+
 import os
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
+    
+    # Inicia keep-alive automaticamente se URL estiver configurada
+    if KEEP_ALIVE_URL:
+        iniciar_keep_alive()
+    
     app.run(host="0.0.0.0", port=port, debug=False)
