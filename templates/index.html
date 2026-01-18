@@ -12,10 +12,10 @@
     
     <!-- SELETOR DE MODO -->
     <div class="modo-selector">
-        <button class="modo-btn active" data-modo="agendado" onclick="selectModo('agendado')">
-            <span class="emoji">⏰</span>
-            <span class="titulo">Agendar às 14h</span>
-            <span class="desc">Execução programada</span>
+        <button class="modo-btn" data-modo="agendado" onclick="selectModo('agendado')">
+            <span class="emoji">🤖</span>
+            <span class="titulo">Agendamento Automático</span>
+            <span class="desc">Programa para amanhã às 14h</span>
         </button>
         <button class="modo-btn" data-modo="reserva" onclick="selectModo('reserva')">
             <span class="emoji">⚡</span>
@@ -40,7 +40,7 @@
 
         <div class="input-group" id="data-container" style="display: none;">
             <input id="data" type="date" placeholder="Data">
-            <small id="data-hint">Para amanhã</small>
+            <small id="data-hint">Selecione a data desejada</small>
         </div>
     </div>
 
@@ -120,8 +120,8 @@
 
     <!-- BOTÕES -->
     <div class="actions">
-        <button class="btn-primary" onclick="start()">
-            <span id="btn-text">▶ Iniciar</span>
+        <button class="btn-primary" onclick="start()" id="btn-start" disabled>
+            <span id="btn-text">Selecione um modo</span>
         </button>
         <button class="btn-cancel" onclick="cancel()">
             ⏹ Cancelar
@@ -137,11 +137,15 @@
     <!-- FOOTER -->
     <div class="footer">
         <small>Developed by Lucas Braga | Versão Web 2.0</small>
+        <br>
+        <a href="/dashboard" target="_blank" style="color: #667eea; text-decoration: none; font-weight: bold; margin-top: 8px; display: inline-block;">
+            📊 Abrir Dashboard de Monitoramento
+        </a>
     </div>
 </div>
 
 <script>
-let modoAtual = 'agendado';
+let modoAtual = null;
 
 function selectModo(modo) {
     modoAtual = modo;
@@ -156,6 +160,10 @@ function selectModo(modo) {
     const dataContainer = document.getElementById('data-container');
     const dataHint = document.getElementById('data-hint');
     const btnText = document.getElementById('btn-text');
+    const btnStart = document.getElementById('btn-start');
+    
+    // Habilita o botão agora que um modo foi selecionado
+    btnStart.disabled = false;
     
     if (modo === 'reserva') {
         dataContainer.style.display = 'block';
@@ -164,7 +172,7 @@ function selectModo(modo) {
     } else {
         dataContainer.style.display = 'none';
         dataHint.textContent = 'Para amanhã';
-        btnText.textContent = '⏰ Agendar às 14h';
+        btnText.textContent = '🤖 Programar para Amanhã às 14h';
     }
 }
 
@@ -174,6 +182,11 @@ function getChecked(name) {
 }
 
 function start() {
+    if (!modoAtual) {
+        alert("Selecione um modo de operação!");
+        return;
+    }
+    
     const quadras = getChecked("quadras");
     const horarios = getChecked("horarios");
     
@@ -196,8 +209,8 @@ function start() {
         modo: modoAtual
     };
     
-    // Adiciona data se não for modo agendado
-    if (modoAtual !== 'agendado' && data.value) {
+    // Adiciona data se for modo reserva
+    if (modoAtual === 'reserva' && data.value) {
         payload.data = data.value;
     }
     

@@ -6,30 +6,40 @@ import requests
 import hashlib
 import uuid
 import os
+import pytz
 
 app = Flask(__name__)
 app.secret_key = "uma_chave_super_secreta_qualquer"
 
+# ===== TIMEZONE =====
+TIMEZONE_BRASIL = pytz.timezone('America/Sao_Paulo')
+
+def agora_brasilia():
+    """Retorna datetime atual no horário de Brasília"""
+    return datetime.now(TIMEZONE_BRASIL)
+
 # ===== FEATURE FLAGS =====
 FEATURES = {
-    "modo_agendado": True,      # Espera até 14h
-    "modo_reserva": True,        # Reserva imediatamente
+    "modo_agendado": True,
+    "modo_reserva": True,
 }
 
 # ===== CONFIG =====
-LOGIN_ANTECIPADO = "13:59:57"  # Atualizado para 13:59:57
-INICIO_TENTATIVAS = "13:59:57"  # Mesmo horário
-FIM_EXECUCAO = "14:00:10"
+INICIO_TENTATIVAS = "14:00:00"  # Horário de Brasília
+FIM_EXECUCAO = "14:00:15"
+
+# Dashboard password
+DASHBOARD_PASSWORD = "dash123@"
 
 # Keep-alive config
-KEEP_ALIVE_URL = os.environ.get("RENDER_EXTERNAL_URL", "")  # URL do seu app no Render
+KEEP_ALIVE_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 KEEP_ALIVE_ATIVO = False
 
 # ===== SESSÕES =====
 user_threads = {}
 user_logs = {}
 user_cancel = {}
-user_info = {}  # NOVO: Armazena info de cada sessão ativa
+user_info = {}
 lock = threading.Lock()
 
 # ===== KEEP-ALIVE AUTOMÁTICO =====
@@ -39,21 +49,18 @@ def keep_alive_worker():
     
     while KEEP_ALIVE_ATIVO:
         try:
-            # Só mantém ativo entre 7h e 22h (horário de Brasília)
-            hora_atual = datetime.now().hour
+            hora_atual = agora_brasilia().hour
             
             if 7 <= hora_atual <= 22:
                 if KEEP_ALIVE_URL:
-                    # Faz ping em si mesmo
                     requests.get(f"{KEEP_ALIVE_URL}/health", timeout=5)
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Keep-alive ping enviado")
+                    print(f"[{agora_brasilia().strftime('%H:%M:%S')}] Keep-alive ping enviado")
             
-            # Aguarda 10 minutos
-            time.sleep(600)  # 600 segundos = 10 minutos
+            time.sleep(600)
             
         except Exception as e:
             print(f"Erro no keep-alive: {e}")
-            time.sleep(60)  # Se der erro, espera 1 minuto e tenta de novo
+            time.sleep(60)
 
 def iniciar_keep_alive():
     """Inicia o sistema de keep-alive"""
@@ -66,14 +73,14 @@ def iniciar_keep_alive():
     KEEP_ALIVE_ATIVO = True
     thread = threading.Thread(target=keep_alive_worker, daemon=True)
     thread.start()
-    print(f"✅ Keep-alive iniciado! Mantendo ativo das 7h às 22h")
+    print(f"✅ Keep-alive iniciado! Mantendo ativo das 7h às 22h (horário de Brasília)")
 
 # ===== UTIL =====
 def log(session_id, msg):
     with lock:
         if session_id not in user_logs:
             user_logs[session_id] = []
-        timestamp = datetime.now().strftime('%H:%M:%S')
+        timestamp = agora_brasilia().strftime('%H:%M:%S')
         user_logs[session_id].append(f"[{timestamp}] {msg}")
         if len(user_logs[session_id]) > 200:
             user_logs[session_id] = user_logs[session_id][-200:]
@@ -83,31 +90,47 @@ def atualizar_status(session_id, status, detalhes=""):
     with lock:
         user_info[session_id]["status"] = status
         user_info[session_id]["detalhes"] = detalhes
-        user_info[session_id]["ultimo_update"] = datetime.now().strftime('%H:%M:%S')
+        user_info[session_id]["ultimo_update"] = agora_brasilia().strftime('%H:%M:%S')
 
 def gerar_md5(s):
     return hashlib.md5(s.encode("utf-8")).hexdigest()
 
 def esperar(session_id, hora_alvo):
-    """Aguarda até atingir o horário alvo (formato HH:MM:SS)"""
-    log(session_id, f"⏳ Aguardando até {hora_alvo} para iniciar...")
+    """Aguarda até atingir o horário alvo (formato HH:MM:SS) no horário de Brasília"""
+    log(session_id, f"⏳ Aguardando até {hora_alvo} (horário de Brasília) para iniciar...")
+    
+    # Mostra hora atual
+    agora_str = agora_brasilia().strftime('%H:%M:%S')
+    log(session_id, f"⏰ Hora atual: {agora_str}")
+    
+    # Verifica se o horário já passou hoje
+    if agora_str >= hora_alvo:
+        log(session_id, f"⚠️ Horário {hora_alvo} já passou hoje!")
+        log(session_id, f"⏰ Aguardando até amanhã às {hora_alvo}...")
+    
     atualizar_status(session_id, "aguardando", f"Aguardando até {hora_alvo}")
     
     while True:
         if user_cancel.get(session_id, False):
             return False
         
-        agora = datetime.now().strftime("%H:%M:%S")
-        if agora >= hora_alvo:
+        agora_str = agora_brasilia().strftime("%H:%M:%S")
+        
+        # Comparação de string igual ao seu código Python
+        if agora_str >= hora_alvo:
             log(session_id, "▶️ Horário atingido! Iniciando processo...")
             return True
         
-        # Atualiza status a cada minuto mostrando quanto falta
+        # Atualiza status mostrando quanto falta
         try:
-            agora_dt = datetime.strptime(agora, "%H:%M:%S")
+            agora_dt = datetime.strptime(agora_str, "%H:%M:%S")
             alvo_dt = datetime.strptime(hora_alvo, "%H:%M:%S")
             diff = (alvo_dt.hour * 3600 + alvo_dt.minute * 60 + alvo_dt.second) - \
                    (agora_dt.hour * 3600 + agora_dt.minute * 60 + agora_dt.second)
+            
+            # Se diff for negativo, o horário já passou - espera até amanhã
+            if diff < 0:
+                diff = 86400 + diff  # 86400 = segundos em 1 dia
             
             if diff > 0:
                 horas = diff // 3600
@@ -149,17 +172,13 @@ def login(username, senha):
     r.raise_for_status()
     data = r.json()
     
-    # Valida resposta como no seu código
     if data.get("ehSucesso") and data.get("retorno", {}).get("token", {}).get("valor"):
         return data["retorno"]["token"]["valor"]
     else:
-        # Retorna erro detalhado
         raise Exception(f"Falha no login: {str(data)}")
 
 def buscar_horarios(token, data):
-    """
-    data deve estar no formato YYYY-MM-DD (ex: 2026-01-05)
-    """
+    """data deve estar no formato YYYY-MM-DD"""
     grupo_id = "01"
     data_completa = f"{data}T00:00:00"
     url = f"https://api-associados.areadosocio.com.br/api/GruposDeDependencia/{grupo_id}/Horarios?data={data_completa}"
@@ -181,12 +200,10 @@ def buscar_horarios(token, data):
 def reservar(token, horario, quadra, matricula, data):
     """
     data: YYYY-MM-DD
-    horario: HH:MM (ex: 14:30)
-    matricula: matrícula do usuário
+    horario: HH:MM
     """
     url = "https://api-associados.areadosocio.com.br/api/Reservas"
     
-    # Calcula hora fim (75 minutos depois)
     hora_fim = (datetime.strptime(horario, "%H:%M") + timedelta(minutes=75)).strftime("%H:%M")
     
     payload = {
@@ -198,7 +215,7 @@ def reservar(token, horario, quadra, matricula, data):
         "idModalidadeReserva": 1,
         "convidados": [],
         "haveraNaoSociosPresentes": False,
-        "captcha": "qualquerValor"  # Igual ao seu código
+        "captcha": "qualquerValor"
     }
     headers = {
         "Authorization": f"Bearer {token}",
@@ -217,7 +234,6 @@ def reservar(token, horario, quadra, matricula, data):
         json_resp = r.json()
         if json_resp.get("ehSucesso"):
             return True
-        # Se falhou, não é erro de código, só não conseguiu reservar
         return False
     
     return False
@@ -239,7 +255,7 @@ def reservar_agora(session_id, dados):
         
         data = dados.get("data", "")
         if not data:
-            data = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+            data = (agora_brasilia() + timedelta(days=1)).strftime("%Y-%m-%d")
         
         log(session_id, f"📅 Data: {data}")
         log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
@@ -248,11 +264,10 @@ def reservar_agora(session_id, dados):
         log(session_id, "")
         log(session_id, "🚀 Iniciando tentativas...")
         
-        # Tenta por 10 segundos
-        fim = datetime.now() + timedelta(seconds=10)
+        fim = agora_brasilia() + timedelta(seconds=10)
         tentativa = 0
         
-        while datetime.now() < fim:
+        while agora_brasilia() < fim:
             tentativa += 1
             atualizar_status(session_id, "tentando", f"Tentativa {tentativa}")
             
@@ -273,7 +288,6 @@ def reservar_agora(session_id, dados):
                 time.sleep(1)
                 continue
             
-            # Itera pelos horários (na ordem de prioridade)
             for horario in dados["horarios"]:
                 if user_cancel.get(session_id, False):
                     return
@@ -326,39 +340,62 @@ def reservar_agora(session_id, dados):
 # ===== MODO AGENDADO (14h - COM ESPERA) =====
 def processo_agendado(session_id, dados):
     user_cancel[session_id] = False
+    
+    agora = agora_brasilia()
+    
+    log(session_id, "🤖 Modo Agendamento Automático - Bot iniciado")
+    log(session_id, f"⏰ Hora atual (Brasília): {agora.strftime('%H:%M:%S')}")
+    log(session_id, f"🎯 Horário programado: {INICIO_TENTATIVAS}")
+    log(session_id, "")
+    log(session_id, "ℹ️ IMPORTANTE: O sistema libera reservas às 14h para o DIA SEGUINTE")
+    log(session_id, f"ℹ️ Quando executar às 14h, buscará quadras para {(agora + timedelta(days=1)).strftime('%d/%m/%Y')}")
+    log(session_id, "")
+    
     atualizar_status(session_id, "aguardando", f"Aguardando até {INICIO_TENTATIVAS}")
-    log(session_id, "⏰ Modo Agendado - Bot iniciado")
     
     try:
-        # AGUARDA até 13:59:57 para começar
+        # AGUARDA até 14:00:00 (horário de Brasília)
         if not esperar(session_id, INICIO_TENTATIVAS):
             atualizar_status(session_id, "cancelado", "Cancelado antes do início")
             log(session_id, "Cancelado antes do início")
             return
         
-        # Faz login assim que atinge o horário
+        # Faz login IMEDIATAMENTE quando atingir 14:00:00
         atualizar_status(session_id, "login", "Fazendo login...")
         log(session_id, "🔐 Fazendo login...")
         token = login(dados["user"], dados["senha"])
-        log(session_id, "✅ Login realizado com sucesso!")
+        log(session_id, "✅ Login realizado!")
         
-        # Se não passou data, usa amanhã
-        data = dados.get("data", "")
-        if not data:
-            data = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        # Usa D+1 (amanhã no horário de Brasília)
+        # IMPORTANTE: O sistema libera reservas às 14h para o DIA SEGUINTE
+        # Exemplo: às 14h do dia 18, libera reservas para o dia 19
+        agora = agora_brasilia()
+        data = (agora + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        log(session_id, f"📅 Data: {data}")
+        log(session_id, f"📅 Hoje: {agora.strftime('%d/%m/%Y')} às {agora.strftime('%H:%M:%S')}")
+        log(session_id, f"📅 Buscando reservas para: {data} (D+1)")
         log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
         log(session_id, f"🕐 Horários: {', '.join(dados['horarios'])}")
         log(session_id, "")
         log(session_id, "🚀 Iniciando tentativas de reserva...")
         
-        # Define horário de fim
-        fim_execucao_dt = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
+        # Define horário de fim - mas se já passou de 14h, dá uma janela de 15 segundos
+        agora = agora_brasilia()
+        fim_execucao_time = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
+        
+        # Se já passou de 14h hoje, permite execução imediata por 15 segundos
+        if agora.time() > fim_execucao_time:
+            log(session_id, "ℹ️ Executando fora do horário programado - janela de 15 segundos")
+            fim_real = agora + timedelta(seconds=15)
+        else:
+            fim_real = agora.replace(hour=fim_execucao_time.hour, 
+                                     minute=fim_execucao_time.minute, 
+                                     second=fim_execucao_time.second)
+        
         sucesso = False
         tentativa = 0
         
-        while datetime.now().time() < fim_execucao_dt and not sucesso:
+        while agora_brasilia() < fim_real and not sucesso:
             tentativa += 1
             atualizar_status(session_id, "tentando", f"Tentativa {tentativa}")
             
@@ -369,21 +406,37 @@ def processo_agendado(session_id, dados):
             
             try:
                 grade = buscar_horarios(token, data)
+                log(session_id, f"Tentativa {tentativa}: {len(grade)} dependências encontradas")
+                
+                # DEBUG: Mostra TODAS as quadras retornadas
+                if tentativa == 1:
+                    log(session_id, "")
+                    log(session_id, "🔍 DEBUG - Quadras retornadas pela API:")
+                    for q in grade:
+                        codigo = q["dependencia"]["codigo"].strip()
+                        nome = q["dependencia"]["descricao"]
+                        qtd_horarios = len(q.get("horarios", []))
+                        log(session_id, f"  • {nome} ({codigo}) - {qtd_horarios} horários")
+                    log(session_id, "")
+                    log(session_id, f"🔍 DEBUG - Quadras que você selecionou: {dados['quadras']}")
+                    log(session_id, f"🔍 DEBUG - Horários que você quer: {dados['horarios']}")
+                    log(session_id, "")
+                
             except PermissionError:
                 log(session_id, "⚠️ Token expirado, refazendo login...")
                 token = login(dados["user"], dados["senha"])
                 continue
             except Exception as e:
                 log(session_id, f"⚠️ Erro ao buscar horários: {e}")
-                time.sleep(0.8)
+                time.sleep(0.5)
                 continue
             
-            # Tenta cada horário, esgotando todas as quadras antes de passar pro próximo
+            # Itera pelos horários na ordem de prioridade
             for horario_prioritario in dados["horarios"]:
                 if sucesso or user_cancel.get(session_id, False):
                     break
                 
-                log(session_id, f"⏩ Tentando todas quadras no horário {horario_prioritario}...")
+                log(session_id, f"⏩ Verificando horário {horario_prioritario} em todas as quadras...")
                 
                 for quadra in grade:
                     if sucesso or user_cancel.get(session_id, False):
@@ -392,11 +445,17 @@ def processo_agendado(session_id, dados):
                     codigo = quadra["dependencia"]["codigo"].strip()
                     nome = quadra["dependencia"]["descricao"]
                     
-                    # Filtra apenas quadras desejadas
                     if codigo not in dados["quadras"]:
                         continue
                     
-                    # Procura o horário específico nesta quadra
+                    # DEBUG: Mostra os horários dessa quadra
+                    if tentativa == 1:
+                        log(session_id, f"  🔍 {nome} ({codigo}) - horários disponíveis:")
+                        for item in quadra.get("horarios", []):
+                            h_ini = item.get("horaInicial")
+                            st = item.get("status", "")
+                            log(session_id, f"     • {h_ini}: {st}")
+                    
                     for item in quadra.get("horarios", []):
                         hora_inicio = item.get("horaInicial")
                         status = item.get("status", "").lower() if item.get("status") else ""
@@ -423,7 +482,7 @@ def processo_agendado(session_id, dados):
                                 log(session_id, f"❌ Erro ao reservar: {e}")
             
             if not sucesso:
-                time.sleep(0.8)
+                time.sleep(0.5)
         
         if not sucesso:
             atualizar_status(session_id, "falhou", "Nenhuma quadra disponível")
@@ -454,14 +513,12 @@ def start():
         session["session_id"] = str(uuid.uuid4())
     session_id = session["session_id"]
     
-    # Valida campos obrigatórios
     if not dados.get("user") or not dados.get("senha") or not dados.get("matricula"):
         return jsonify({"status": "erro", "msg": "Preencha usuário, senha e matrícula"})
     
     if not dados.get("quadras") or not dados.get("horarios"):
         return jsonify({"status": "erro", "msg": "Selecione quadras e horários"})
     
-    # Mapeia modos
     funcoes = {
         "reserva": reservar_agora,
         "agendado": processo_agendado,
@@ -470,15 +527,14 @@ def start():
     if modo not in funcoes:
         return jsonify({"status": "erro", "msg": "Modo inválido"})
     
-    # Salva informações da sessão
     with lock:
         user_info[session_id] = {
             "usuario": dados.get("user", ""),
             "modo": modo,
             "status": "iniciando",
             "detalhes": "",
-            "inicio": datetime.now().strftime('%H:%M:%S'),
-            "ultimo_update": datetime.now().strftime('%H:%M:%S'),
+            "inicio": agora_brasilia().strftime('%H:%M:%S'),
+            "ultimo_update": agora_brasilia().strftime('%H:%M:%S'),
             "quadras": dados.get("quadras", []),
             "horarios": dados.get("horarios", [])
         }
@@ -510,21 +566,23 @@ def get_logs():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "time": datetime.now().isoformat()})
+    return jsonify({
+        "status": "ok",
+        "time_utc": datetime.utcnow().isoformat(),
+        "time_brasilia": agora_brasilia().isoformat()
+    })
 
 @app.route("/keep-alive")
 def keep_alive():
-    """Endpoint para manter o servidor acordado no Render"""
     return jsonify({
         "status": "alive",
         "active_threads": len(user_threads),
         "keep_alive_ativo": KEEP_ALIVE_ATIVO,
-        "time": datetime.now().isoformat()
+        "time_brasilia": agora_brasilia().isoformat()
     })
 
 @app.route("/ativar-keep-alive", methods=["POST"])
 def ativar_keep_alive():
-    """Ativa o sistema de keep-alive (útil para agendar às 14h)"""
     global KEEP_ALIVE_ATIVO
     
     if not KEEP_ALIVE_ATIVO and KEEP_ALIVE_URL:
@@ -537,38 +595,70 @@ def ativar_keep_alive():
 
 @app.route("/status")
 def status_geral():
-    """Mostra status de todos os agendamentos ativos"""
+    """Endpoint protegido - requer autenticação"""
+    if not session.get("dashboard_autenticado", False):
+        return jsonify({"erro": "Não autenticado"}), 401
+    
     with lock:
         sessoes_ativas = []
+        sessoes_finalizadas = []
         
         for session_id, info in user_info.items():
-            # Verifica se thread ainda está viva
             thread = user_threads.get(session_id)
+            sessao_data = {
+                "session_id": session_id[:8],  # Primeiros 8 caracteres
+                "usuario": info.get("usuario", ""),
+                "modo": info.get("modo", ""),
+                "status": info.get("status", ""),
+                "detalhes": info.get("detalhes", ""),
+                "inicio": info.get("inicio", ""),
+                "ultimo_update": info.get("ultimo_update", ""),
+                "quadras": info.get("quadras", []),
+                "horarios": info.get("horarios", []),
+                "logs": user_logs.get(session_id, [])[-50:]  # Últimos 50 logs
+            }
+            
             if thread and thread.is_alive():
-                sessoes_ativas.append({
-                    "usuario": info.get("usuario", ""),
-                    "modo": info.get("modo", ""),
-                    "status": info.get("status", ""),
-                    "detalhes": info.get("detalhes", ""),
-                    "inicio": info.get("inicio", ""),
-                    "ultimo_update": info.get("ultimo_update", ""),
-                    "quadras": info.get("quadras", []),
-                    "horarios": info.get("horarios", [])
-                })
+                sessoes_ativas.append(sessao_data)
+            else:
+                sessoes_finalizadas.append(sessao_data)
         
         return jsonify({
             "total_ativo": len(sessoes_ativas),
-            "sessoes": sessoes_ativas,
-            "hora_servidor": datetime.now().strftime('%H:%M:%S')
+            "total_finalizado": len(sessoes_finalizadas),
+            "sessoes_ativas": sessoes_ativas,
+            "sessoes_finalizadas": sessoes_finalizadas[-10:],  # Últimas 10 finalizadas
+            "hora_servidor_brasilia": agora_brasilia().strftime('%H:%M:%S')
         })
 
-import os
+@app.route("/dashboard")
+def dashboard():
+    """Página de monitoramento em tempo real"""
+    return render_template("dashboard.html")
+
+@app.route("/dashboard/auth", methods=["POST"])
+def dashboard_auth():
+    """Valida senha do dashboard"""
+    data = request.json
+    senha = data.get("senha", "")
+    
+    if senha == DASHBOARD_PASSWORD:
+        session["dashboard_autenticado"] = True
+        return jsonify({"status": "ok"})
+    else:
+        return jsonify({"status": "erro", "msg": "Senha incorreta"}), 401
+
+@app.route("/dashboard/check")
+def dashboard_check():
+    """Verifica se está autenticado"""
+    autenticado = session.get("dashboard_autenticado", False)
+    return jsonify({"autenticado": autenticado})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     
-    # Inicia keep-alive automaticamente se URL estiver configurada
     if KEEP_ALIVE_URL:
         iniciar_keep_alive()
     
+    print(f"🇧🇷 Servidor rodando no horário de Brasília: {agora_brasilia().strftime('%H:%M:%S')}")
     app.run(host="0.0.0.0", port=port, debug=False)
