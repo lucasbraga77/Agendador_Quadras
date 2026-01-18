@@ -17,8 +17,8 @@ FEATURES = {
 }
 
 # ===== CONFIG =====
-LOGIN_ANTECIPADO = "13:59:50"
-INICIO_TENTATIVAS = "13:59:59"
+LOGIN_ANTECIPADO = "13:59:57"  # Atualizado para 13:59:57
+INICIO_TENTATIVAS = "13:59:57"  # Mesmo horário
 FIM_EXECUCAO = "14:00:10"
 
 # Keep-alive config
@@ -80,12 +80,20 @@ def log(session_id, msg):
 def gerar_md5(s):
     return hashlib.md5(s.encode("utf-8")).hexdigest()
 
-def esperar(session_id, hora):
-    while datetime.now().strftime("%H:%M:%S") < hora:
+def esperar(session_id, hora_alvo):
+    """Aguarda até atingir o horário alvo (formato HH:MM:SS)"""
+    log(session_id, f"⏳ Aguardando até {hora_alvo} para iniciar...")
+    
+    while True:
         if user_cancel.get(session_id, False):
             return False
-        time.sleep(0.3)
-    return True
+        
+        agora = datetime.now().strftime("%H:%M:%S")
+        if agora >= hora_alvo:
+            log(session_id, "▶️ Horário atingido! Iniciando processo...")
+            return True
+        
+        time.sleep(0.5)
 
 # ===== API =====
 def login(username, senha):
@@ -280,33 +288,34 @@ def reservar_agora(session_id, dados):
 def processo_agendado(session_id, dados):
     user_cancel[session_id] = False
     log(session_id, "⏰ Modo Agendado - Bot iniciado")
-    log(session_id, "Aguardando horário de login...")
     
     try:
-        if not esperar(session_id, LOGIN_ANTECIPADO):
-            log(session_id, "Cancelado antes do login")
-            return
-        
-        log(session_id, "Realizando login...")
-        token = login(dados["user"], dados["senha"])
-        log(session_id, "✅ Login realizado")
-        
+        # AGUARDA até 13:59:57 para começar
         if not esperar(session_id, INICIO_TENTATIVAS):
-            log(session_id, "Cancelado antes das tentativas")
+            log(session_id, "Cancelado antes do início")
             return
+        
+        # Faz login assim que atinge o horário
+        log(session_id, "🔐 Fazendo login...")
+        token = login(dados["user"], dados["senha"])
+        log(session_id, "✅ Login realizado com sucesso!")
         
         # Se não passou data, usa amanhã
         data = dados.get("data", "")
         if not data:
             data = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        log(session_id, f"🚀 Iniciando tentativas para {data}")
+        log(session_id, f"📅 Data: {data}")
         log(session_id, f"🎾 Quadras: {', '.join(dados['quadras'])}")
         log(session_id, f"🕐 Horários: {', '.join(dados['horarios'])}")
+        log(session_id, "")
+        log(session_id, "🚀 Iniciando tentativas de reserva...")
         
-        fim = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
+        # Define horário de fim
+        fim_execucao_dt = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
+        sucesso = False
         
-        while datetime.now().time() < fim:
+        while datetime.now().time() < fim_execucao_dt and not sucesso:
             if user_cancel.get(session_id, False):
                 log(session_id, "Cancelado pelo usuário")
                 return
@@ -317,14 +326,22 @@ def processo_agendado(session_id, dados):
                 log(session_id, "⚠️ Token expirado, refazendo login...")
                 token = login(dados["user"], dados["senha"])
                 continue
+            except Exception as e:
+                log(session_id, f"⚠️ Erro ao buscar horários: {e}")
+                time.sleep(0.8)
+                continue
             
-            # Itera pelos horários desejados (na ordem de prioridade)
-            for horario in dados["horarios"]:
-                if user_cancel.get(session_id, False):
-                    return
+            # Tenta cada horário, esgotando todas as quadras antes de passar pro próximo
+            for horario_prioritario in dados["horarios"]:
+                if sucesso or user_cancel.get(session_id, False):
+                    break
                 
-                # Itera pelas quadras
+                log(session_id, f"⏩ Tentando todas quadras no horário {horario_prioritario}...")
+                
                 for quadra in grade:
+                    if sucesso or user_cancel.get(session_id, False):
+                        break
+                    
                     codigo = quadra["dependencia"]["codigo"].strip()
                     nome = quadra["dependencia"]["descricao"]
                     
@@ -337,27 +354,37 @@ def processo_agendado(session_id, dados):
                         hora_inicio = item.get("horaInicial")
                         status = item.get("status", "").lower() if item.get("status") else ""
                         
-                        if hora_inicio == horario:
-                            if status == "livre":
-                                log(session_id, f"⚡ Tentando {nome} ({codigo}) às {horario}")
-                                try:
-                                    if reservar(token, horario, codigo, dados["matricula"], data):
-                                        log(session_id, f"✅✅✅ RESERVA CONFIRMADA: {nome} ({codigo}) às {horario}")
-                                        return
-                                    else:
-                                        log(session_id, f"❌ Falhou: {nome} ({codigo}) às {horario}")
-                                except PermissionError:
-                                    log(session_id, "⚠️ Token expirado, refazendo login...")
-                                    token = login(dados["user"], dados["senha"])
-                            else:
-                                log(session_id, f"⏭️ {nome} ({codigo}) às {horario} - {status.upper()}")
+                        if hora_inicio == horario_prioritario and status == "livre":
+                            log(session_id, f"🟢 Livre: {nome} ({codigo}) - {horario_prioritario}")
+                            try:
+                                if reservar(token, horario_prioritario, codigo, dados["matricula"], data):
+                                    log(session_id, "")
+                                    log(session_id, "✅✅✅ RESERVA CONFIRMADA!")
+                                    log(session_id, f"📍 Quadra: {nome} ({codigo})")
+                                    log(session_id, f"🕐 Horário: {horario_prioritario}")
+                                    log(session_id, f"📅 Data: {data}")
+                                    sucesso = True
+                                    break
+                                else:
+                                    log(session_id, f"❌ Falhou: {nome} ({codigo}) às {horario_prioritario}")
+                            except PermissionError:
+                                log(session_id, "⚠️ Token expirado durante reserva, refazendo login...")
+                                token = login(dados["user"], dados["senha"])
+                                break
+                            except Exception as e:
+                                log(session_id, f"❌ Erro ao reservar: {e}")
             
-            time.sleep(0.5)
+            if not sucesso:
+                time.sleep(0.8)
         
-        log(session_id, "❌ Tempo esgotado - Nenhuma reserva realizada")
+        if not sucesso:
+            log(session_id, "")
+            log(session_id, "❌ Nenhuma quadra encontrada dentro da janela de tempo")
         
     except Exception as e:
-        log(session_id, f"❌ Erro: {e}")
+        log(session_id, f"❌ Erro geral: {e}")
+        import traceback
+        log(session_id, f"Detalhes: {traceback.format_exc()}")
 
 # ===== ROTAS =====
 @app.route("/")
