@@ -91,6 +91,7 @@ def gerar_md5(s):
 def esperar(session_id, hora_alvo):
     """Aguarda até atingir o horário alvo (formato HH:MM:SS)"""
     log(session_id, f"⏳ Aguardando até {hora_alvo} para iniciar...")
+    atualizar_status(session_id, "aguardando", f"Aguardando até {hora_alvo}")
     
     while True:
         if user_cancel.get(session_id, False):
@@ -100,6 +101,29 @@ def esperar(session_id, hora_alvo):
         if agora >= hora_alvo:
             log(session_id, "▶️ Horário atingido! Iniciando processo...")
             return True
+        
+        # Atualiza status a cada minuto mostrando quanto falta
+        try:
+            agora_dt = datetime.strptime(agora, "%H:%M:%S")
+            alvo_dt = datetime.strptime(hora_alvo, "%H:%M:%S")
+            diff = (alvo_dt.hour * 3600 + alvo_dt.minute * 60 + alvo_dt.second) - \
+                   (agora_dt.hour * 3600 + agora_dt.minute * 60 + agora_dt.second)
+            
+            if diff > 0:
+                horas = diff // 3600
+                minutos = (diff % 3600) // 60
+                segundos = diff % 60
+                
+                if horas > 0:
+                    tempo_falta = f"{horas}h {minutos}min"
+                elif minutos > 0:
+                    tempo_falta = f"{minutos}min {segundos}s"
+                else:
+                    tempo_falta = f"{segundos}s"
+                
+                atualizar_status(session_id, "aguardando", f"Faltam {tempo_falta}")
+        except:
+            pass
         
         time.sleep(0.5)
 
