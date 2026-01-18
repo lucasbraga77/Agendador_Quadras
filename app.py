@@ -29,6 +29,7 @@ KEEP_ALIVE_ATIVO = False
 user_threads = {}
 user_logs = {}
 user_cancel = {}
+user_info = {}  # NOVO: Armazena info de cada sessão ativa
 lock = threading.Lock()
 
 # ===== KEEP-ALIVE AUTOMÁTICO =====
@@ -76,6 +77,13 @@ def log(session_id, msg):
         user_logs[session_id].append(f"[{timestamp}] {msg}")
         if len(user_logs[session_id]) > 200:
             user_logs[session_id] = user_logs[session_id][-200:]
+
+def atualizar_status(session_id, status, detalhes=""):
+    """Atualiza o status de uma sessão"""
+    with lock:
+        user_info[session_id]["status"] = status
+        user_info[session_id]["detalhes"] = detalhes
+        user_info[session_id]["ultimo_update"] = datetime.now().strftime('%H:%M:%S')
 
 def gerar_md5(s):
     return hashlib.md5(s.encode("utf-8")).hexdigest()
@@ -193,9 +201,11 @@ def reservar(token, horario, quadra, matricula, data):
 # ===== MODO RESERVA (Reserva imediatamente) =====
 def reservar_agora(session_id, dados):
     user_cancel[session_id] = False
+    atualizar_status(session_id, "iniciando", "Modo Reserva")
     log(session_id, "⚡ Modo Reserva - Tentando agendar AGORA")
     
     try:
+        atualizar_status(session_id, "login", "Fazendo login...")
         log(session_id, "Realizando login...")
         log(session_id, f"Usuário: {dados['user']}")
         
@@ -220,8 +230,10 @@ def reservar_agora(session_id, dados):
         
         while datetime.now() < fim:
             tentativa += 1
+            atualizar_status(session_id, "tentando", f"Tentativa {tentativa}")
             
             if user_cancel.get(session_id, False):
+                atualizar_status(session_id, "cancelado", "Usuário cancelou")
                 log(session_id, "Cancelado")
                 return
             
@@ -258,6 +270,7 @@ def reservar_agora(session_id, dados):
                             log(session_id, f"⚡ Tentando reservar...")
                             try:
                                 if reservar(token, horario, codigo, dados["matricula"], data):
+                                    atualizar_status(session_id, "sucesso", f"{nome} às {horario}")
                                     log(session_id, f"")
                                     log(session_id, f"✅✅✅ RESERVA CONFIRMADA!")
                                     log(session_id, f"📍 Quadra: {nome} ({codigo})")
@@ -275,11 +288,13 @@ def reservar_agora(session_id, dados):
             
             time.sleep(0.5)
         
+        atualizar_status(session_id, "falhou", "Tempo esgotado")
         log(session_id, "")
         log(session_id, f"❌ Tempo esgotado após {tentativa} tentativas")
         log(session_id, "Nenhuma reserva realizada")
         
     except Exception as e:
+        atualizar_status(session_id, "erro", str(e))
         log(session_id, f"❌ ERRO FATAL: {str(e)}")
         import traceback
         log(session_id, f"Detalhes: {traceback.format_exc()}")
@@ -287,15 +302,18 @@ def reservar_agora(session_id, dados):
 # ===== MODO AGENDADO (14h - COM ESPERA) =====
 def processo_agendado(session_id, dados):
     user_cancel[session_id] = False
+    atualizar_status(session_id, "aguardando", f"Aguardando até {INICIO_TENTATIVAS}")
     log(session_id, "⏰ Modo Agendado - Bot iniciado")
     
     try:
         # AGUARDA até 13:59:57 para começar
         if not esperar(session_id, INICIO_TENTATIVAS):
+            atualizar_status(session_id, "cancelado", "Cancelado antes do início")
             log(session_id, "Cancelado antes do início")
             return
         
         # Faz login assim que atinge o horário
+        atualizar_status(session_id, "login", "Fazendo login...")
         log(session_id, "🔐 Fazendo login...")
         token = login(dados["user"], dados["senha"])
         log(session_id, "✅ Login realizado com sucesso!")
@@ -314,9 +332,14 @@ def processo_agendado(session_id, dados):
         # Define horário de fim
         fim_execucao_dt = datetime.strptime(FIM_EXECUCAO, "%H:%M:%S").time()
         sucesso = False
+        tentativa = 0
         
         while datetime.now().time() < fim_execucao_dt and not sucesso:
+            tentativa += 1
+            atualizar_status(session_id, "tentando", f"Tentativa {tentativa}")
+            
             if user_cancel.get(session_id, False):
+                atualizar_status(session_id, "cancelado", "Usuário cancelou")
                 log(session_id, "Cancelado pelo usuário")
                 return
             
@@ -358,6 +381,7 @@ def processo_agendado(session_id, dados):
                             log(session_id, f"🟢 Livre: {nome} ({codigo}) - {horario_prioritario}")
                             try:
                                 if reservar(token, horario_prioritario, codigo, dados["matricula"], data):
+                                    atualizar_status(session_id, "sucesso", f"{nome} às {horario_prioritario}")
                                     log(session_id, "")
                                     log(session_id, "✅✅✅ RESERVA CONFIRMADA!")
                                     log(session_id, f"📍 Quadra: {nome} ({codigo})")
@@ -378,10 +402,12 @@ def processo_agendado(session_id, dados):
                 time.sleep(0.8)
         
         if not sucesso:
+            atualizar_status(session_id, "falhou", "Nenhuma quadra disponível")
             log(session_id, "")
             log(session_id, "❌ Nenhuma quadra encontrada dentro da janela de tempo")
         
     except Exception as e:
+        atualizar_status(session_id, "erro", str(e))
         log(session_id, f"❌ Erro geral: {e}")
         import traceback
         log(session_id, f"Detalhes: {traceback.format_exc()}")
@@ -420,13 +446,26 @@ def start():
     if modo not in funcoes:
         return jsonify({"status": "erro", "msg": "Modo inválido"})
     
+    # Salva informações da sessão
+    with lock:
+        user_info[session_id] = {
+            "usuario": dados.get("user", ""),
+            "modo": modo,
+            "status": "iniciando",
+            "detalhes": "",
+            "inicio": datetime.now().strftime('%H:%M:%S'),
+            "ultimo_update": datetime.now().strftime('%H:%M:%S'),
+            "quadras": dados.get("quadras", []),
+            "horarios": dados.get("horarios", [])
+        }
+    
     func = funcoes[modo]
     
     thread = threading.Thread(target=func, args=(session_id, dados), daemon=True)
     user_threads[session_id] = thread
     thread.start()
     
-    return jsonify({"status": "ok", "modo": modo})
+    return jsonify({"status": "ok", "modo": modo, "session_id": session_id})
 
 @app.route("/cancel", methods=["POST"])
 def cancel():
@@ -471,6 +510,33 @@ def ativar_keep_alive():
         return jsonify({"status": "erro", "msg": "URL não configurada"})
     else:
         return jsonify({"status": "ok", "msg": "Já está ativo"})
+
+@app.route("/status")
+def status_geral():
+    """Mostra status de todos os agendamentos ativos"""
+    with lock:
+        sessoes_ativas = []
+        
+        for session_id, info in user_info.items():
+            # Verifica se thread ainda está viva
+            thread = user_threads.get(session_id)
+            if thread and thread.is_alive():
+                sessoes_ativas.append({
+                    "usuario": info.get("usuario", ""),
+                    "modo": info.get("modo", ""),
+                    "status": info.get("status", ""),
+                    "detalhes": info.get("detalhes", ""),
+                    "inicio": info.get("inicio", ""),
+                    "ultimo_update": info.get("ultimo_update", ""),
+                    "quadras": info.get("quadras", []),
+                    "horarios": info.get("horarios", [])
+                })
+        
+        return jsonify({
+            "total_ativo": len(sessoes_ativas),
+            "sessoes": sessoes_ativas,
+            "hora_servidor": datetime.now().strftime('%H:%M:%S')
+        })
 
 import os
 
