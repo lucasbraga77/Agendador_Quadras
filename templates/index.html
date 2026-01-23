@@ -15,7 +15,7 @@
         <button class="modo-btn" data-modo="agendado" onclick="selectModo('agendado')">
             <span class="emoji">🤖</span>
             <span class="titulo">Agendamento Automático</span>
-            <span class="desc">Programa para amanhã às 14h</span>
+            <span class="desc">Programa para iniciar às 14h</span>
         </button>
         <button class="modo-btn" data-modo="reserva" onclick="selectModo('reserva')">
             <span class="emoji">⚡</span>
@@ -160,7 +160,7 @@
 
     <!-- FOOTER -->
     <div class="footer">
-        <small>Developed by LB | Versão Web 2.0</small>
+        <small>Developed by Lucas Braga | Versão Web 2.0</small>
     </div>
 </div>
 
@@ -192,7 +192,7 @@ function selectModo(modo) {
     } else {
         dataContainer.style.display = 'none';
         dataHint.textContent = 'Para amanhã';
-        btnText.textContent = '🤖 Programar para Amanhã às 14h';
+        btnText.textContent = '🤖 Programar para iniciar às 14h';
     }
 }
 
