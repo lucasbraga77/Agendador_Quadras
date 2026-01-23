@@ -40,6 +40,8 @@ user_threads = {}
 user_logs = {}
 user_cancel = {}
 user_info = {}
+user_tokens = {}  # Cache de tokens por usuário
+historico_permanente = []  # Histórico que persiste por dias
 lock = threading.Lock()
 
 # ===== KEEP-ALIVE AUTOMÁTICO =====
@@ -91,9 +93,47 @@ def atualizar_status(session_id, status, detalhes=""):
         user_info[session_id]["status"] = status
         user_info[session_id]["detalhes"] = detalhes
         user_info[session_id]["ultimo_update"] = agora_brasilia().strftime('%H:%M:%S')
+        
+        # Se finalizou (sucesso, falhou ou erro), salva no histórico permanente
+        if status in ["sucesso", "falhou", "erro", "cancelado"]:
+            salvar_historico_permanente(session_id)
 
 def gerar_md5(s):
     return hashlib.md5(s.encode("utf-8")).hexdigest()
+
+def salvar_historico_permanente(session_id):
+    """Salva registro permanente quando finaliza"""
+    global historico_permanente
+    
+    if session_id not in user_info:
+        return
+    
+    info = user_info[session_id]
+    
+    # Remove registros antigos (mantém apenas últimos 30 dias)
+    agora = agora_brasilia()
+    limite = agora - timedelta(days=30)
+    historico_permanente = [h for h in historico_permanente 
+                           if datetime.strptime(h["data"], "%Y-%m-%d") >= limite.date()]
+    
+    # Adiciona novo registro
+    registro = {
+        "data": agora.strftime("%Y-%m-%d"),
+        "hora": info.get("inicio", ""),
+        "usuario": info.get("usuario", ""),
+        "modo": info.get("modo", ""),
+        "status": info.get("status", ""),
+        "detalhes": info.get("detalhes", ""),
+        "quadras": info.get("quadras", []),
+        "horarios": info.get("horarios", []),
+        "timestamp": agora.isoformat()
+    }
+    
+    historico_permanente.append(registro)
+    
+    # Mantém no máximo 1000 registros
+    if len(historico_permanente) > 1000:
+        historico_permanente = historico_permanente[-1000:]
 
 def esperar(session_id, hora_alvo):
     """Aguarda até atingir o horário alvo (formato HH:MM:SS) no horário de Brasília"""
@@ -151,7 +191,35 @@ def esperar(session_id, hora_alvo):
         time.sleep(0.5)
 
 # ===== API =====
+def validar_token(token):
+    """Verifica se o token ainda é válido"""
+    try:
+        url_teste = "https://api-associados.areadosocio.com.br/api/Associados/Autenticado"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "tenant": "uniaocorinthians",
+            "Accept": "application/json"
+        }
+        resp = requests.get(url_teste, headers=headers, timeout=5)
+        return resp.status_code == 200
+    except:
+        return False
+
 def login(username, senha):
+    # Verifica se já tem token válido em cache
+    cache_key = gerar_md5(username + senha)
+    
+    if cache_key in user_tokens:
+        token_info = user_tokens[cache_key]
+        token = token_info.get("token")
+        timestamp = token_info.get("timestamp", 0)
+        
+        # Se o token tem menos de 30 minutos e ainda é válido
+        if (time.time() - timestamp) < 1800 and validar_token(token):
+            print(f"🔄 Reusando token em cache para {username}")
+            return token
+    
+    # Se não tem cache ou expirou, faz novo login
     url = "https://api-associados.areadosocio.com.br/api/Logins"
     senha_md5 = gerar_md5(senha)
     payload = {
@@ -173,7 +241,16 @@ def login(username, senha):
     data = r.json()
     
     if data.get("ehSucesso") and data.get("retorno", {}).get("token", {}).get("valor"):
-        return data["retorno"]["token"]["valor"]
+        token = data["retorno"]["token"]["valor"]
+        
+        # Salva no cache
+        user_tokens[cache_key] = {
+            "token": token,
+            "timestamp": time.time()
+        }
+        
+        print(f"✅ Novo login realizado para {username}")
+        return token
     else:
         raise Exception(f"Falha no login: {str(data)}")
 
@@ -628,6 +705,7 @@ def status_geral():
             "total_finalizado": len(sessoes_finalizadas),
             "sessoes_ativas": sessoes_ativas,
             "sessoes_finalizadas": sessoes_finalizadas[-10:],  # Últimas 10 finalizadas
+            "historico_permanente": historico_permanente[-50:],  # Últimos 50 do histórico
             "hora_servidor_brasilia": agora_brasilia().strftime('%H:%M:%S')
         })
 
@@ -653,6 +731,134 @@ def dashboard_check():
     """Verifica se está autenticado"""
     autenticado = session.get("dashboard_autenticado", False)
     return jsonify({"autenticado": autenticado})
+
+@app.route("/consultar-quadras", methods=["POST"])
+def consultar_quadras():
+    """Consulta quadras ocupadas em uma data específica (Dashboard)"""
+    if not session.get("dashboard_autenticado", False):
+        return jsonify({"erro": "Não autenticado"}), 401
+    
+    return processar_consulta_quadras()
+
+@app.route("/consultar-quadras-public", methods=["POST"])
+def consultar_quadras_public():
+    """Consulta quadras ocupadas - versão pública (tela inicial)"""
+    return processar_consulta_quadras()
+
+def processar_consulta_quadras():
+    """Lógica compartilhada para consultar quadras"""
+    data = request.json
+    username = data.get("username")
+    senha = data.get("senha")
+    data_consulta = data.get("data")
+    
+    if not username or not senha or not data_consulta:
+        return jsonify({"erro": "Parâmetros incompletos"}), 400
+    
+    try:
+        # Faz login (usa cache se disponível)
+        token = login(username, senha)
+        
+        # Busca horários
+        grupo_id = "01"
+        data_completa = f"{data_consulta}T00:00:00"
+        url = f"https://api-associados.areadosocio.com.br/api/GruposDeDependencia/{grupo_id}/Horarios?data={data_completa}"
+        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Origin": "https://uniaocorinthians.areadosocio.com.br",
+            "Referer": "https://uniaocorinthians.areadosocio.com.br/",
+            "tenant": "uniaocorinthians"
+        }
+        
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        resultado = response.json()
+        grade = resultado.get("gradeHorarios", [])
+        
+        dados_tabela = []
+        
+        for quadra in grade:
+            nome_quad = quadra["dependencia"]["descricao"]
+            horarios = quadra.get("horarios", [])
+            
+            for h in horarios:
+                id_reserva = h.get("idReservaPrincipal", 0)
+                status = h.get("status")
+                hora_inicio = h.get("horaInicial")
+                hora_final = h.get("horaFinal")
+                
+                # Extrai apenas o número da quadra (ex: "1 - QUADRA AFUBRA" -> "1")
+                codigo_quadra = quadra["dependencia"]["codigo"].strip()
+                numero_quadra = codigo_quadra.split("-")[-1] if "-" in codigo_quadra else codigo_quadra
+                
+                periodo = hora_inicio  # Só a hora inicial
+                
+                if id_reserva > 0:
+                    # Busca detalhes da reserva
+                    url_detalhes = f"https://api-associados.areadosocio.com.br/api/ReservasCompartilhadasPrivadas/{id_reserva}/Detalhes"
+                    detalhe = requests.get(url_detalhes, headers=headers)
+                    
+                    if detalhe.status_code == 200:
+                        dados = detalhe.json()
+                        responsavel = dados.get("socio", {}).get("nome", "[Sem nome]")
+                        
+                        participantes = []
+                        for p in dados.get("participantes", []):
+                            socio = p.get("socio")
+                            if socio and socio.get("nome"):
+                                participantes.append(socio["nome"])
+                            else:
+                                participantes.append("[Sem nome]")
+                        
+                        convidados = [c.get("nome", "[Sem nome]") for c in dados.get("convidados", [])]
+                        convidados_str = ", ".join(convidados) if convidados else ""
+                        
+                        # Remove o primeiro participante (que é o responsável)
+                        # e pega os próximos 3
+                        participantes = participantes[1:] if len(participantes) > 0 else []
+                        participantes += [""] * (3 - len(participantes))
+                        p2, p3, p4 = participantes[:3]
+                        
+                        dados_tabela.append({
+                            "horario": periodo,
+                            "quadra": numero_quadra,
+                            "status": status,
+                            "responsavel": responsavel,
+                            "participante2": p2,
+                            "participante3": p3,
+                            "participante4": p4,
+                            "convidados": convidados_str
+                        })
+                    else:
+                        dados_tabela.append({
+                            "horario": periodo,
+                            "quadra": numero_quadra,
+                            "status": status,
+                            "responsavel": "[Erro ao buscar]",
+                            "participante2": "", "participante3": "", "participante4": "",
+                            "convidados": ""
+                        })
+                else:
+                    dados_tabela.append({
+                        "horario": periodo,
+                        "quadra": numero_quadra,
+                        "status": status,
+                        "responsavel": "",
+                        "participante2": "", "participante3": "", "participante4": "",
+                        "convidados": ""
+                    })
+        
+        return jsonify({
+            "status": "ok",
+            "data": data_consulta,
+            "tabela": dados_tabela
+        })
+        
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))

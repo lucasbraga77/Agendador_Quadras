@@ -134,13 +134,33 @@
         <pre id="log"></pre>
     </div>
 
+    <!-- CONSULTA DE QUADRAS -->
+    <div class="log-section">
+        <h3 style="cursor: pointer; user-select: none;" onclick="toggleConsulta()">
+            🎾 Consultar Quadras Ocupadas 
+            <span id="toggle-icon" style="float: right;">▼</span>
+        </h3>
+        <div id="consulta-section" style="display: none;">
+            <div style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                <input type="date" id="consulta-data" style="padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; margin-right: 10px; font-size: 14px;">
+                <button onclick="consultarQuadras()" style="padding: 8px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                    Buscar
+                </button>
+                <small style="display: block; margin-top: 10px; color: #6b7280;">
+                    💡 Preencha as credenciais.
+                </small>
+                <div id="login-extra" style="display: none; margin-top: 10px;">
+                    <input type="text" id="consulta-user" placeholder="Usuário" style="padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; margin-right: 5px; width: 150px;">
+                    <input type="password" id="consulta-senha" placeholder="Senha" style="padding: 8px; border: 1px solid #d1d5db; border-radius: 6px; width: 150px;">
+                </div>
+            </div>
+            <div id="tabela-quadras"></div>
+        </div>
+    </div>
+
     <!-- FOOTER -->
     <div class="footer">
         <small>Developed by Lucas Braga | Versão Web 2.0</small>
-        <br>
-        <a href="/dashboard" target="_blank" style="color: #667eea; text-decoration: none; font-weight: bold; margin-top: 8px; display: inline-block;">
-            📊 Abrir Dashboard de Monitoramento
-        </a>
     </div>
 </div>
 
@@ -246,6 +266,117 @@ setInterval(() => {
 const amanha = new Date();
 amanha.setDate(amanha.getDate() + 1);
 document.getElementById('data').value = amanha.toISOString().split('T')[0];
+document.getElementById('consulta-data').value = amanha.toISOString().split('T')[0];
+
+function toggleConsulta() {
+    const section = document.getElementById('consulta-section');
+    const icon = document.getElementById('toggle-icon');
+    
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        icon.textContent = '▲';
+    } else {
+        section.style.display = 'none';
+        icon.textContent = '▼';
+    }
+}
+
+function consultarQuadras() {
+    // Tenta usar as credenciais já preenchidas no formulário principal
+    let username = document.getElementById('user').value;
+    let senha = document.getElementById('senha').value;
+    
+    // Se não tiver, pede para preencher os campos extras
+    if (!username || !senha) {
+        const loginExtra = document.getElementById('login-extra');
+        loginExtra.style.display = 'block';
+        
+        username = document.getElementById('consulta-user').value;
+        senha = document.getElementById('consulta-senha').value;
+        
+        if (!username || !senha) {
+            alert('Preencha usuário e senha para consultar!');
+            return;
+        }
+    }
+    
+    const data = document.getElementById('consulta-data').value;
+    
+    if (!data) {
+        alert('Selecione uma data!');
+        return;
+    }
+    
+    const tabelaDiv = document.getElementById('tabela-quadras');
+    tabelaDiv.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 20px;">⏳ Buscando quadras...</p>';
+    
+    fetch('/consultar-quadras-public', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: username, senha: senha, data: data})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.erro) {
+            tabelaDiv.innerHTML = `<p style="color: #dc2626; padding: 20px;">❌ Erro: ${data.erro}</p>`;
+            return;
+        }
+        
+        if (data.tabela.length === 0) {
+            tabelaDiv.innerHTML = '<p style="text-align: center; color: #6b7280; padding: 20px;">Nenhuma reserva encontrada</p>';
+            return;
+        }
+        
+        let html = `
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; font-size: 12px;">
+                    <thead>
+                        <tr style="background: #f3f4f6;">
+                            <th style="padding: 8px 6px; text-align: center; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb; width: 50px;">Hora</th>
+                            <th style="padding: 8px 6px; text-align: center; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb; width: 40px;">Quadra</th>
+                            <th style="padding: 8px 6px; text-align: center; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb; width: 25px;"></th>
+                            <th style="padding: 8px 6px; text-align: left; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb;">Responsável</th>
+                            <th style="padding: 8px 6px; text-align: left; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb;">P2</th>
+                            <th style="padding: 8px 6px; text-align: left; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb;">P3</th>
+                            <th style="padding: 8px 6px; text-align: left; font-size: 11px; color: #374151; font-weight: 600; border-bottom: 2px solid #e5e7eb;">P4</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        data.tabela.forEach(row => {
+            // Define cor do status
+            let statusColor = '#9ca3af'; // Cinza para Indisponível
+            let statusEmoji = '⚫';
+            
+            if (row.status === 'Livre') {
+                statusColor = '#10b981'; // Verde
+                statusEmoji = '🟢';
+            } else if (row.status === 'Reservado' || row.status === 'Ocupado') {
+                statusColor = '#ef4444'; // Vermelho
+                statusEmoji = '🔴';
+            }
+            
+            html += `
+                <tr style="border-bottom: 1px solid #e5e7eb;">
+                    <td style="padding: 8px 6px; font-size: 12px; text-align: center; font-weight: 600;">${row.horario}</td>
+                    <td style="padding: 8px 6px; font-size: 12px; text-align: center; font-weight: 600;">${row.quadra}</td>
+                    <td style="padding: 8px 6px; text-align: center; font-size: 16px;" title="${row.status}">${statusEmoji}</td>
+                    <td style="padding: 8px 6px; font-size: 12px;">${row.responsavel}</td>
+                    <td style="padding: 8px 6px; font-size: 12px;">${row.participante2}</td>
+                    <td style="padding: 8px 6px; font-size: 12px;">${row.participante3}</td>
+                    <td style="padding: 8px 6px; font-size: 12px;">${row.participante4}</td>
+                </tr>
+            `;
+        });
+        
+        html += '</tbody></table></div>';
+        tabelaDiv.innerHTML = html;
+    })
+    .catch(err => {
+        tabelaDiv.innerHTML = `<p style="color: #dc2626; padding: 20px;">❌ Erro: ${err}</p>`;
+    });
+}
 </script>
 </body>
 </html>
